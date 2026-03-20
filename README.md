@@ -109,6 +109,24 @@ Generated binaries:
 - Windows: `target/release/serial-scope.exe`
 - Linux: `target/release/serial-scope`
 
+## GitHub Actions Release
+
+This repository includes `.github/workflows/release.yml` for automated release builds.
+
+- Manual test build: run the `release` workflow from the Actions tab using `workflow_dispatch`
+- Tagged release build: push a tag like `v0.1.0`
+- Build targets: `windows-latest` and `ubuntu-latest`
+- Outputs:
+  - workflow artifacts for each platform
+  - GitHub Release assets automatically uploaded when the workflow is triggered by a tag
+
+Example:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Configuration
 
 The app reads and writes `config.toml` in the project root and persists:
