@@ -1,0 +1,22 @@
+# Rust
+/target/
+
+# Local runtime files
+config.toml
+*_receive.txt
+*_plot.csv
+serial_log_*.txt
+serial_log_*.csv
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# MSVC / debug artifacts
+*.pdb
+
+# Backup files
+*.bak
+*.tmp
