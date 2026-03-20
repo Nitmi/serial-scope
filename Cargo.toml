@@ -1,7 +1,8 @@
 [package]
 name = "serial-scope"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1"
@@ -15,3 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serialport = "4"
 toml = "0.8"
 fontdb = "0.16"
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

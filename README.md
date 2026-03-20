@@ -1,5 +1,7 @@
 # serial-scope
 
+Current version: `0.1.1`
+
 `serial-scope` is a cross-platform Rust serial debugging tool built with `eframe + egui`, targeting Windows and Fedora Linux. It supports asynchronous serial communication, ASCII/HEX send and display modes, text line parsing, real-time plotting, quick commands, auto-send, protocol helpers, and local TOML-based configuration.
 
 ## Features
@@ -38,7 +40,7 @@
 
 ## Preview
 
-Preview image will be stored in `assets/preview.png` and shown here after it is added to the repository.
+![serial-scope preview](assets/preview.png)
 
 ## Project Layout
 
@@ -108,6 +110,14 @@ Generated binaries:
 
 - Windows: `target/release/serial-scope.exe`
 - Linux: `target/release/serial-scope`
+
+## Icon Packaging
+
+- Windows builds embed `assets/app-icon.ico` into `serial-scope.exe` through `build.rs`
+- Linux release bundles include `packaging/linux/serial-scope.desktop` and `assets/app-icon.png`
+- Local packaging helpers:
+  - Windows: `packaging\windows\package-windows.bat 0.1.1`
+  - Linux: `bash packaging/linux/package-linux.sh 0.1.1`
 
 ## GitHub Actions Release
 

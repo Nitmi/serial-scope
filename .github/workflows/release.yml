@@ -23,11 +23,11 @@ jobs:
           - os: windows-latest
             artifact_name: serial-scope-windows-x86_64
             binary_path: target/release/serial-scope.exe
-            asset_name: serial-scope-windows-x86_64.exe
+            package_path: dist/serial-scope-windows-x86_64.zip
           - os: ubuntu-latest
             artifact_name: serial-scope-linux-x86_64
             binary_path: target/release/serial-scope
-            asset_name: serial-scope-linux-x86_64
+            package_path: dist/serial-scope-linux-x86_64.tar.gz
 
     steps:
       - name: Checkout
@@ -59,18 +59,27 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      - name: Package Windows bundle
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: packaging\windows\package-windows.bat ${{ github.ref_name }}
+
+      - name: Package Linux bundle
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/package-linux.sh ${{ github.ref_name }}
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.binary_path }}
+          path: ${{ matrix.package_path }}
           if-no-files-found: error
 
       - name: Upload release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.binary_path }}
+          files: ${{ matrix.package_path }}
           fail_on_unmatched_files: true
           generate_release_notes: true
           append_body: true

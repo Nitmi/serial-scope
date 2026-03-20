@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Serial Scope
+Comment=Rust serial debugging assistant with plotting support
+Exec=serial-scope
+Icon=serial-scope
+Terminal=false
+Categories=Development;Electronics;
+Keywords=serial;uart;debug;plot;egui;
+StartupNotify=true

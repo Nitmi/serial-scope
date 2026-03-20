@@ -1,8 +1,12 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod app;
 mod config;
 mod parser;
 mod serial;
 mod ui;
+
+use std::fs;
 
 use app::SerialToolApp;
 use config::AppConfig;
@@ -16,9 +20,9 @@ fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1280.0, 820.0])
         .with_min_inner_size([960.0, 640.0])
-        .with_title("Serial Tool");
+        .with_title("Serial Scope");
 
-    if let Some(icon) = default_icon() {
+    if let Some(icon) = load_app_icon() {
         viewport = viewport.with_icon(icon);
     }
 
@@ -29,7 +33,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "serial_tool",
+        "serial-scope",
         options,
         Box::new(move |cc| {
             configure_fonts(&cc.egui_ctx);
@@ -121,30 +125,13 @@ fn configure_theme(ctx: &egui::Context) {
     ctx.set_visuals(visuals);
 }
 
-fn default_icon() -> Option<egui::IconData> {
-    let width = 32;
-    let height = 32;
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-
-    for y in 0..height {
-        for x in 0..width {
-            let inside = x > 3 && x < 28 && y > 5 && y < 26;
-            let accent = (x + y) % 7 == 0;
-            let (r, g, b, a) = if inside {
-                if accent {
-                    (92, 178, 255, 255)
-                } else {
-                    (32, 128, 216, 255)
-                }
-            } else {
-                (0, 0, 0, 0)
-            };
-            rgba.extend_from_slice(&[r, g, b, a]);
-        }
-    }
+fn load_app_icon() -> Option<egui::IconData> {
+    let bytes = fs::read("assets/app-icon.png").ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
 
     Some(egui::IconData {
-        rgba,
+        rgba: image.into_raw(),
         width,
         height,
     })
