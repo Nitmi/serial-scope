@@ -114,6 +114,7 @@ Generated binaries:
 This repository includes `.github/workflows/release.yml` for automated release builds.
 
 On Linux CI, `libudev-dev` is installed because the `serialport` dependency uses `libudev` on Linux.
+The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt into the newer GitHub Actions JavaScript runtime and avoid the Node.js 20 deprecation warning.
 
 - Manual test build: run the `release` workflow from the Actions tab using `workflow_dispatch`
 - Tagged release build: push a tag like `v0.1.0`
