@@ -1,7 +1,7 @@
 use eframe::egui::{self, vec2, Color32, RichText, Slider, Stroke};
 use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
-use crate::app::{preview_text_line, SerialToolApp};
+use crate::app::{preview_text_line, MainView, SerialToolApp};
 
 const RESIZE_HANDLE_WIDTH: f32 = 12.0;
 const MIN_PLOT_WIDTH: f32 = 420.0;
@@ -15,6 +15,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             ui.set_min_height(260.0);
             ui.horizontal_wrapped(|ui| {
                 ui.heading(RichText::new("实时曲线").color(Color32::from_rgb(48, 56, 66)));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    view_switch(ui, app);
+                });
                 if ui.button(app.chart_state.paused_label()).clicked() {
                     app.chart_state.toggle_pause();
                 }
@@ -275,6 +278,19 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                         .color(Color32::from_rgb(255, 196, 120)),
                 );
             }
+        });
+}
+
+fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(244, 241, 236))
+        .stroke(Stroke::new(1.0, Color32::from_rgb(216, 221, 229)))
+        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
+                ui.selectable_value(&mut app.active_view, MainView::Plot, "数据绘图");
+            });
         });
 }
 

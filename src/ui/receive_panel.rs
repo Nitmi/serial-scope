@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, RichText, Stroke};
 
-use crate::app::{mono_text_style, preview_text_line, SerialToolApp};
+use crate::app::{mono_text_style, preview_text_line, MainView, SerialToolApp};
 use crate::serial::DisplayMode;
 
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
@@ -16,6 +16,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.heading(RichText::new("接收区").color(INK));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    view_switch(ui, app);
+                });
+            });
+
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new("查看完整串口输出，支持过滤、时间戳和关键字高亮。")
                         .small()
@@ -53,6 +59,19 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
             ui.add_space(10.0);
             log_surface(ui, app);
+        });
+}
+
+fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(244, 241, 236))
+        .stroke(Stroke::new(1.0, LINE))
+        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
+                ui.selectable_value(&mut app.active_view, MainView::Plot, "数据绘图");
+            });
         });
 }
 

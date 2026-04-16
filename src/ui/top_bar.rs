@@ -73,36 +73,39 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                             });
 
                             ui.vertical(|ui| {
-                                ui.label(RichText::new("快速操作").small().color(MUTED));
+                                ui.label(RichText::new("串口控制").small().color(MUTED));
                                 ui.horizontal(|ui| {
-                                    if ui
-                                        .add_sized([86.0, 30.0], egui::Button::new("刷新串口"))
-                                        .clicked()
-                                    {
-                                        app.refresh_ports();
-                                    }
-
-                                    let open_button = egui::Button::new(
-                                        RichText::new("打开串口").strong().color(Color32::WHITE),
+                                    let connect_label = if app.is_connected {
+                                        "关闭串口"
+                                    } else {
+                                        "打开串口"
+                                    };
+                                    let connect_button = egui::Button::new(
+                                        RichText::new(connect_label).strong().color(Color32::WHITE),
                                     )
-                                    .fill(ACCENT);
-                                    if ui.add_enabled(!app.is_connected, open_button).clicked() {
-                                        app.apply_baud_rate_input();
-                                        if app.last_error.is_none() {
-                                            app.open_port();
+                                    .min_size(egui::vec2(106.0, 30.0))
+                                    .fill(if app.is_connected {
+                                        Color32::from_rgb(122, 133, 148)
+                                    } else {
+                                        ACCENT
+                                    });
+
+                                    if ui.add(connect_button).clicked() {
+                                        if app.is_connected {
+                                            app.close_port();
+                                        } else {
+                                            app.apply_baud_rate_input();
+                                            if app.last_error.is_none() {
+                                                app.open_port();
+                                            }
                                         }
                                     }
-
-                                    if ui
-                                        .add_enabled(
-                                            app.is_connected,
-                                            egui::Button::new("关闭串口"),
-                                        )
-                                        .clicked()
-                                    {
-                                        app.close_port();
-                                    }
                                 });
+                                ui.label(
+                                    RichText::new("串口列表会在未连接时自动刷新")
+                                        .small()
+                                        .color(MUTED),
+                                );
                             });
                         });
                     });
@@ -129,45 +132,7 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                     });
                             });
 
-                            labeled_inline(ui, "CSV 分隔符", |ui| {
-                                let mut delimiter_text =
-                                    app.config.parser.csv_delimiter.to_string();
-                                if ui
-                                    .add(
-                                        egui::TextEdit::singleline(&mut delimiter_text)
-                                            .desired_width(44.0),
-                                    )
-                                    .changed()
-                                {
-                                    if let Some(ch) = delimiter_text.chars().next() {
-                                        app.config.parser.csv_delimiter = ch;
-                                        app.persist_config();
-                                    }
-                                }
-                            });
-
-                            labeled_inline(ui, "通道名", |ui| {
-                                if ui
-                                    .add(
-                                        egui::TextEdit::singleline(
-                                            &mut app.config.parser.csv_channel_names,
-                                        )
-                                        .desired_width(240.0),
-                                    )
-                                    .changed()
-                                {
-                                    app.persist_config();
-                                }
-                            });
-
                             ui.separator();
-
-                            labeled_inline(ui, "导出前缀", |ui| {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut app.export_base_name)
-                                        .desired_width(220.0),
-                                );
-                            });
 
                             if ui.button("导出曲线 CSV").clicked() {
                                 app.export_plot_csv();
@@ -175,6 +140,53 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                             if ui.button("导出接收日志").clicked() {
                                 app.export_receive_log();
                             }
+                        });
+
+                        ui.add_space(6.0);
+                        egui::CollapsingHeader::new(
+                            RichText::new("更多解析/导出设置").small().color(MUTED),
+                        )
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                labeled_inline(ui, "CSV 分隔符", |ui| {
+                                    let mut delimiter_text =
+                                        app.config.parser.csv_delimiter.to_string();
+                                    if ui
+                                        .add(
+                                            egui::TextEdit::singleline(&mut delimiter_text)
+                                                .desired_width(44.0),
+                                        )
+                                        .changed()
+                                    {
+                                        if let Some(ch) = delimiter_text.chars().next() {
+                                            app.config.parser.csv_delimiter = ch;
+                                            app.persist_config();
+                                        }
+                                    }
+                                });
+
+                                labeled_inline(ui, "通道名", |ui| {
+                                    if ui
+                                        .add(
+                                            egui::TextEdit::singleline(
+                                                &mut app.config.parser.csv_channel_names,
+                                            )
+                                            .desired_width(240.0),
+                                        )
+                                        .changed()
+                                    {
+                                        app.persist_config();
+                                    }
+                                });
+
+                                labeled_inline(ui, "导出前缀", |ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut app.export_base_name)
+                                            .desired_width(220.0),
+                                    );
+                                });
+                            });
                         });
                     });
 
@@ -191,23 +203,25 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         });
                     });
 
-                    ui.add_space(8.0);
-                    egui::Frame::none()
-                        .fill(SURFACE_SOFT)
-                        .stroke(Stroke::new(1.0, LINE))
-                        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-                        .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new("状态").strong().color(ACCENT));
-                                ui.label(RichText::new(&app.status_text).color(INK));
-                                if let Some(error) = &app.last_error {
-                                    ui.separator();
+                    if let Some(error) = &app.last_error {
+                        ui.add_space(8.0);
+                        egui::Frame::none()
+                            .fill(Color32::from_rgb(249, 232, 232))
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(235, 198, 198)))
+                            .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+                            .show(ui, |ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     ui.label(
-                                        RichText::new(error).color(Color32::from_rgb(194, 88, 88)),
+                                        RichText::new("错误")
+                                            .strong()
+                                            .color(Color32::from_rgb(184, 82, 82)),
                                     );
-                                }
+                                    ui.label(
+                                        RichText::new(error).color(Color32::from_rgb(184, 82, 82)),
+                                    );
+                                });
                             });
-                        });
+                    }
                 });
         });
 }

@@ -20,6 +20,7 @@ use crate::ui::{plot_panel, receive_panel, send_panel, top_bar};
 const MAX_LOG_LINES: usize = 1_000;
 const MAX_PLOT_POINTS: usize = 2_000;
 const GUI_REFRESH_MS: u64 = 30;
+const PORT_REFRESH_MS: u64 = 1_500;
 const MAX_LINE_PREVIEW_CHARS: usize = 120;
 const MAX_SEND_HISTORY: usize = 20;
 
@@ -119,15 +120,22 @@ impl SerialToolApp {
     pub fn refresh_ports(&mut self) {
         match available_port_names() {
             Ok(ports) => {
+                let ports_changed = self.port_names != ports;
                 self.port_names = ports;
+
+                let mut selection_changed = false;
                 if self.port_names.is_empty() {
                     self.status_text = "未发现串口设备".to_owned();
-                } else if self.config.serial.port_name.is_empty() {
+                } else if self.config.serial.port_name.is_empty()
+                    || !self.port_names.contains(&self.config.serial.port_name)
+                {
                     self.config.serial.port_name = self.port_names[0].clone();
-                } else if !self.port_names.contains(&self.config.serial.port_name) {
-                    self.config.serial.port_name = self.port_names[0].clone();
+                    selection_changed = true;
                 }
-                self.persist_config();
+
+                if ports_changed || selection_changed {
+                    self.persist_config();
+                }
             }
             Err(err) => self.push_error(format!("刷新串口失败: {err}")),
         }
@@ -378,6 +386,7 @@ impl SerialToolApp {
                 self.auto_send_enabled = false;
                 self.next_auto_send_at = None;
                 self.status_text = format!("已断开: {reason}");
+                self.refresh_ports();
             }
             SerialEvent::Status(text) => self.status_text = text,
             SerialEvent::Error(text) => self.push_error(text),
@@ -529,7 +538,9 @@ impl eframe::App for SerialToolApp {
         self.handle_auto_send();
         self.update_transfer_rates();
 
-        if self.last_refresh.elapsed() >= Duration::from_millis(800) {
+        if !self.is_connected
+            && self.last_refresh.elapsed() >= Duration::from_millis(PORT_REFRESH_MS)
+        {
             self.refresh_ports();
             self.last_refresh = Instant::now();
         }
@@ -544,32 +555,9 @@ impl eframe::App for SerialToolApp {
                 send_panel::show(ui, self);
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Frame::group(ui.style())
-                .fill(egui::Color32::from_rgb(249, 247, 243))
-                .stroke(egui::Stroke::new(
-                    1.0,
-                    egui::Color32::from_rgb(216, 221, 229),
-                ))
-                .inner_margin(egui::Margin::symmetric(12.0, 10.0))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("工作区")
-                                .strong()
-                                .color(egui::Color32::from_rgb(95, 108, 124)),
-                        );
-                        ui.separator();
-                        ui.selectable_value(&mut self.active_view, MainView::Monitor, "串口监视");
-                        ui.selectable_value(&mut self.active_view, MainView::Plot, "数据绘图");
-                    });
-                });
-            ui.add_space(10.0);
-
-            match self.active_view {
-                MainView::Monitor => receive_panel::show(ui, self),
-                MainView::Plot => plot_panel::show(ui, self),
-            }
+        egui::CentralPanel::default().show(ctx, |ui| match self.active_view {
+            MainView::Monitor => receive_panel::show(ui, self),
+            MainView::Plot => plot_panel::show(ui, self),
         });
 
         ctx.request_repaint_after(Duration::from_millis(GUI_REFRESH_MS));
