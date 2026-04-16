@@ -3,7 +3,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::serial::{DataBitsSetting, DisplayMode, ParitySetting, SerialPortConfig, StopBitsSetting};
+use crate::serial::{
+    DataBitsSetting, DisplayMode, ParitySetting, SerialPortConfig, StopBitsSetting,
+};
 
 const CONFIG_PATH: &str = "config.toml";
 
@@ -19,6 +21,8 @@ pub struct AppConfig {
     pub parser: ParserConfig,
     pub receive_filter: String,
     pub highlight_keywords: String,
+    #[serde(default)]
+    pub plot_layout: PlotLayoutConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +73,21 @@ pub struct ParserConfig {
     pub csv_channel_names: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlotLayoutConfig {
+    pub auto_sidebar_width: bool,
+    pub sidebar_width: f32,
+}
+
+impl Default for PlotLayoutConfig {
+    fn default() -> Self {
+        Self {
+            auto_sidebar_width: true,
+            sidebar_width: 300.0,
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
@@ -106,6 +125,7 @@ impl Default for AppConfig {
             },
             receive_filter: String::new(),
             highlight_keywords: "error,fail,warning".to_owned(),
+            plot_layout: PlotLayoutConfig::default(),
         }
     }
 }

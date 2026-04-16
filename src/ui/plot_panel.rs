@@ -1,7 +1,10 @@
-use eframe::egui::{self, vec2, Color32, DragValue, RichText, Slider};
+use eframe::egui::{self, vec2, Color32, RichText, Slider, Stroke};
 use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
 use crate::app::{preview_text_line, SerialToolApp};
+
+const RESIZE_HANDLE_WIDTH: f32 = 12.0;
+const MIN_PLOT_WIDTH: f32 = 420.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -48,13 +51,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
         ui.add_space(6.0);
         let available_size = ui.available_size();
-        let sidebar_width = app.chart_state.sidebar_width.clamp(240.0, 460.0);
-        app.chart_state.sidebar_width = sidebar_width;
+        let sidebar_width = app.chart_state.effective_sidebar_width(available_size.x);
+        let plot_height = available_size.y.max(520.0);
 
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
-                let plot_width = (available_size.x - sidebar_width - 30.0).max(520.0);
-                let plot_height = available_size.y.max(520.0);
+                let plot_width = (available_size.x - sidebar_width - RESIZE_HANDLE_WIDTH - 18.0)
+                    .max(MIN_PLOT_WIDTH);
                 ui.set_width(plot_width);
 
                 let plot = Plot::new("serial_plot")
@@ -90,22 +93,59 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 });
             });
 
-            ui.separator();
+            let (handle_rect, handle_response) = ui.allocate_exact_size(
+                vec2(RESIZE_HANDLE_WIDTH, plot_height),
+                egui::Sense::click_and_drag(),
+            );
+            let handle_color = if handle_response.dragged() || handle_response.hovered() {
+                Color32::from_rgb(120, 172, 255)
+            } else {
+                Color32::from_rgb(68, 74, 86)
+            };
+            ui.painter().line_segment(
+                [
+                    handle_rect.center_top() + vec2(0.0, 16.0),
+                    handle_rect.center_bottom() - vec2(0.0, 16.0),
+                ],
+                Stroke::new(2.0, handle_color),
+            );
+            ui.painter()
+                .circle_filled(handle_rect.center(), 4.0, handle_color);
+
+            if handle_response.dragged() {
+                let drag_delta_x = ui.input(|input| input.pointer.delta().x);
+                if drag_delta_x.abs() > f32::EPSILON {
+                    app.chart_state
+                        .set_manual_sidebar_width(sidebar_width - drag_delta_x);
+                    app.persist_config();
+                }
+            }
 
             ui.vertical(|ui| {
                 ui.set_width(sidebar_width);
                 ui.horizontal(|ui| {
                     ui.heading("曲线面板");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add(
-                            DragValue::new(&mut app.chart_state.sidebar_width)
-                                .prefix("宽度 ")
-                                .speed(1.0)
-                                .range(240.0..=460.0),
+                        let reset_button = ui.add_enabled(
+                            !app.chart_state.auto_sidebar_width,
+                            egui::Button::new("重置布局"),
+                        );
+                        if reset_button.clicked() {
+                            app.chart_state.reset_sidebar_width();
+                            app.persist_config();
+                        }
+                        ui.label(
+                            RichText::new(if app.chart_state.auto_sidebar_width {
+                                "自动宽度"
+                            } else {
+                                "手动宽度"
+                            })
+                            .small()
+                            .color(Color32::from_rgb(140, 148, 160)),
                         );
                     });
                 });
-                ui.label(RichText::new("X/Y 缩放互相独立，可单独隐藏或清空曲线。").small());
+                ui.label(RichText::new("拖动中间分隔线可调整宽度，X/Y 缩放互相独立。").small());
                 ui.add_space(4.0);
                 ui.add(Slider::new(&mut app.chart_state.x_zoom, 0.2..=5.0).text("X 轴缩放"));
                 ui.add(Slider::new(&mut app.chart_state.y_zoom, 0.2..=5.0).text("Y 轴缩放"));

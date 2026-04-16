@@ -7,7 +7,9 @@ use chrono::Local;
 use crossbeam_channel::{Receiver, TryRecvError};
 use eframe::egui::{self, RichText, TextStyle};
 
-use crate::config::{AppConfig, AutoSendConfig, ProtocolAssistantConfig, QuickCommandConfig};
+use crate::config::{
+    AppConfig, AutoSendConfig, PlotLayoutConfig, ProtocolAssistantConfig, QuickCommandConfig,
+};
 use crate::parser::{LineAccumulator, ParsedLine, ParsedSchema};
 use crate::serial::{
     available_port_names, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
@@ -82,7 +84,7 @@ impl SerialToolApp {
             receive_lines: VecDeque::new(),
             pending_receive: None,
             line_accumulator: LineAccumulator::default(),
-            chart_state: PlotState::default(),
+            chart_state: PlotState::from_config(&config.plot_layout),
             stats: TransferStats::default(),
             is_connected: false,
             last_refresh: Instant::now() - Duration::from_secs(1),
@@ -144,6 +146,10 @@ impl SerialToolApp {
         self.config.protocol_assistant = self.protocol_assistant.clone();
         self.config.receive_filter = self.receive_filter.clone();
         self.config.highlight_keywords = self.highlight_keywords.clone();
+        self.config.plot_layout = PlotLayoutConfig {
+            auto_sidebar_width: self.chart_state.auto_sidebar_width,
+            sidebar_width: self.chart_state.sidebar_width,
+        };
         if let Err(err) = self.config.save() {
             self.last_error = Some(format!("保存配置失败: {err}"));
         }
@@ -596,6 +602,7 @@ pub struct PlotState {
     pub auto_follow: bool,
     pub x_zoom: f64,
     pub y_zoom: f64,
+    pub auto_sidebar_width: bool,
     pub sidebar_width: f32,
     locked_schema: Option<ParsedSchema>,
     pending_schema: Option<PendingSchema>,
@@ -612,6 +619,7 @@ impl Default for PlotState {
             auto_follow: true,
             x_zoom: 1.0,
             y_zoom: 1.0,
+            auto_sidebar_width: true,
             sidebar_width: 280.0,
             locked_schema: None,
             pending_schema: None,
@@ -628,6 +636,32 @@ struct PendingSchema {
 }
 
 impl PlotState {
+    pub fn from_config(config: &PlotLayoutConfig) -> Self {
+        Self {
+            auto_sidebar_width: config.auto_sidebar_width,
+            sidebar_width: config.sidebar_width.clamp(260.0, 420.0),
+            ..Self::default()
+        }
+    }
+
+    pub fn effective_sidebar_width(&self, available_width: f32) -> f32 {
+        let auto_width = (available_width * 0.26).clamp(260.0, 420.0);
+        if self.auto_sidebar_width {
+            auto_width
+        } else {
+            self.sidebar_width.clamp(260.0, 420.0)
+        }
+    }
+
+    pub fn set_manual_sidebar_width(&mut self, width: f32) {
+        self.auto_sidebar_width = false;
+        self.sidebar_width = width.clamp(260.0, 420.0);
+    }
+
+    pub fn reset_sidebar_width(&mut self) {
+        self.auto_sidebar_width = true;
+    }
+
     pub fn ingest(&mut self, parsed: ParsedLine, max_points: usize) {
         if self.locked_schema.as_ref() == Some(&parsed.schema) {
             self.pending_schema = None;
@@ -982,5 +1016,26 @@ mod tests {
         assert!(state
             .schema_status_text()
             .contains("等待稳定的绘图数据格式"));
+    }
+
+    #[test]
+    fn auto_sidebar_width_stays_within_expected_range() {
+        let state = PlotState::default();
+
+        assert_eq!(state.effective_sidebar_width(800.0), 260.0);
+        assert_eq!(state.effective_sidebar_width(1_800.0), 420.0);
+    }
+
+    #[test]
+    fn manual_sidebar_width_can_override_and_reset() {
+        let mut state = PlotState::default();
+
+        state.set_manual_sidebar_width(390.0);
+        assert!(!state.auto_sidebar_width);
+        assert_eq!(state.effective_sidebar_width(1_200.0), 390.0);
+
+        state.reset_sidebar_width();
+        assert!(state.auto_sidebar_width);
+        assert_eq!(state.effective_sidebar_width(1_200.0), 312.0);
     }
 }
