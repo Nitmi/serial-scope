@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, DragValue, RichText, Slider, vec2};
+use eframe::egui::{self, vec2, Color32, DragValue, RichText, Slider};
 use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
 use crate::app::{preview_text_line, SerialToolApp};
@@ -28,6 +28,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         ui.label(
             RichText::new(app.chart_state.latest_points_summary())
                 .color(Color32::from_rgb(120, 172, 255)),
+        );
+        ui.label(
+            RichText::new(app.chart_state.schema_status_text())
+                .small()
+                .color(Color32::from_rgb(255, 196, 120)),
         );
         if let Some(record) = app.receive_lines.back() {
             if let Some(preview) = preview_text_line(&record.data) {
@@ -75,7 +80,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                     for name in app.chart_state.visible_series_names() {
                         if let Some(values) = app.chart_state.series.get(&name) {
                             let points = PlotPoints::from_iter(values.iter().map(|p| [p[0], p[1]]));
-                            plot_ui.line(Line::new(points).name(name.clone()).color(series_color(&name)));
+                            plot_ui.line(
+                                Line::new(points)
+                                    .name(name.clone())
+                                    .color(series_color(&name)),
+                            );
                         }
                     }
                 });
@@ -104,80 +113,87 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     ui.set_min_height(available_size.y.max(520.0));
-                    egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-                        let names = app
-                            .chart_state
-                            .series
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<_>>();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .show(ui, |ui| {
+                            let names = app.chart_state.series.keys().cloned().collect::<Vec<_>>();
 
-                        if names.is_empty() {
-                            ui.label("暂无数据");
-                            return;
-                        }
+                            if names.is_empty() {
+                                ui.label("暂无数据");
+                                return;
+                            }
 
-                        egui::Grid::new("plot_series_stats")
-                            .num_columns(6)
-                            .spacing([10.0, 8.0])
-                            .striped(true)
-                            .show(ui, |ui| {
-                                ui.label("");
-                                ui.label(RichText::new("显示").strong());
-                                ui.label(RichText::new("最小值").strong());
-                                ui.label(RichText::new("最大值").strong());
-                                ui.label(RichText::new("当前值").strong());
-                                ui.label(RichText::new("操作").strong());
-                                ui.end_row();
-
-                                for name in names {
-                                    let color = series_color(&name);
-                                    let mut visible = app.chart_state.visible.contains(&name);
-                                    let stats = app
-                                        .chart_state
-                                        .series
-                                        .get(&name)
-                                        .map(|values| {
-                                            let mut min_value = f64::INFINITY;
-                                            let mut max_value = f64::NEG_INFINITY;
-                                            for point in values {
-                                                min_value = min_value.min(point[1]);
-                                                max_value = max_value.max(point[1]);
-                                            }
-                                            let current = values.back().map(|point| point[1]).unwrap_or(0.0);
-                                            (min_value, max_value, current)
-                                        })
-                                        .unwrap_or((0.0, 0.0, 0.0));
-
-                                    ui.horizontal(|ui| {
-                                        let (rect, _) = ui.allocate_exact_size(vec2(10.0, 10.0), egui::Sense::hover());
-                                        ui.painter().circle_filled(rect.center(), 5.0, color);
-                                        ui.label(RichText::new(name.clone()).strong());
-                                    });
-
-                                    if ui.checkbox(&mut visible, "").changed() {
-                                        if visible {
-                                            app.chart_state.visible.insert(name.clone());
-                                        } else {
-                                            app.chart_state.visible.remove(&name);
-                                        }
-                                    }
-
-                                    ui.label(RichText::new(format!("{:.3}", stats.0)).monospace());
-                                    ui.label(RichText::new(format!("{:.3}", stats.1)).monospace());
-                                    ui.label(
-                                        RichText::new(format!("{:.3}", stats.2))
-                                            .monospace()
-                                            .color(color),
-                                    );
-
-                                    if ui.button("清除").clicked() {
-                                        app.chart_state.clear_series(&name);
-                                    }
+                            egui::Grid::new("plot_series_stats")
+                                .num_columns(6)
+                                .spacing([10.0, 8.0])
+                                .striped(true)
+                                .show(ui, |ui| {
+                                    ui.label("");
+                                    ui.label(RichText::new("显示").strong());
+                                    ui.label(RichText::new("最小值").strong());
+                                    ui.label(RichText::new("最大值").strong());
+                                    ui.label(RichText::new("当前值").strong());
+                                    ui.label(RichText::new("操作").strong());
                                     ui.end_row();
-                                }
-                            });
-                    });
+
+                                    for name in names {
+                                        let color = series_color(&name);
+                                        let mut visible = app.chart_state.visible.contains(&name);
+                                        let stats = app
+                                            .chart_state
+                                            .series
+                                            .get(&name)
+                                            .map(|values| {
+                                                let mut min_value = f64::INFINITY;
+                                                let mut max_value = f64::NEG_INFINITY;
+                                                for point in values {
+                                                    min_value = min_value.min(point[1]);
+                                                    max_value = max_value.max(point[1]);
+                                                }
+                                                let current = values
+                                                    .back()
+                                                    .map(|point| point[1])
+                                                    .unwrap_or(0.0);
+                                                (min_value, max_value, current)
+                                            })
+                                            .unwrap_or((0.0, 0.0, 0.0));
+
+                                        ui.horizontal(|ui| {
+                                            let (rect, _) = ui.allocate_exact_size(
+                                                vec2(10.0, 10.0),
+                                                egui::Sense::hover(),
+                                            );
+                                            ui.painter().circle_filled(rect.center(), 5.0, color);
+                                            ui.label(RichText::new(name.clone()).strong());
+                                        });
+
+                                        if ui.checkbox(&mut visible, "").changed() {
+                                            if visible {
+                                                app.chart_state.visible.insert(name.clone());
+                                            } else {
+                                                app.chart_state.visible.remove(&name);
+                                            }
+                                        }
+
+                                        ui.label(
+                                            RichText::new(format!("{:.3}", stats.0)).monospace(),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!("{:.3}", stats.1)).monospace(),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!("{:.3}", stats.2))
+                                                .monospace()
+                                                .color(color),
+                                        );
+
+                                        if ui.button("清除").clicked() {
+                                            app.chart_state.clear_series(&name);
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                        });
                 });
             });
         });

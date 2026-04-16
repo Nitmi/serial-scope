@@ -2,8 +2,24 @@ use std::collections::BTreeMap;
 
 use crate::config::{ParserConfig, ParserMode};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedSchema {
+    Csv { channels: usize },
+    KeyValue { keys: Vec<String> },
+}
+
+impl ParsedSchema {
+    pub fn label(&self) -> String {
+        match self {
+            ParsedSchema::Csv { channels } => format!("CSV({channels} 通道)"),
+            ParsedSchema::KeyValue { keys } => format!("Key=Value({})", keys.join(", ")),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedLine {
+    pub schema: ParsedSchema,
     pub values: Vec<(String, f32)>,
 }
 
@@ -60,22 +76,26 @@ pub fn parse_text_line_with_config(line: &str, config: &ParserConfig) -> Option<
 }
 
 fn parse_key_value_line(line: &str) -> Option<ParsedLine> {
-    let mut values = Vec::new();
+    let mut values = BTreeMap::new();
 
     for segment in line.split(',') {
         let (key, value) = segment.split_once('=')?;
         let key = key.trim();
-        let value = value.trim().parse::<f32>().ok()?;
+        let value = parse_numeric_token(value)?;
         if key.is_empty() {
             return None;
         }
-        values.push((key.to_owned(), value));
+        values.insert(key.to_owned(), value);
     }
 
     if values.is_empty() {
         None
     } else {
-        Some(ParsedLine { values })
+        let keys = values.keys().cloned().collect::<Vec<_>>();
+        Some(ParsedLine {
+            schema: ParsedSchema::KeyValue { keys },
+            values: values.into_iter().collect(),
+        })
     }
 }
 
@@ -89,21 +109,176 @@ fn parse_csv_numbers(line: &str, config: &ParserConfig) -> Option<ParsedLine> {
         .map(|item| item.to_owned())
         .collect::<Vec<_>>();
 
-    let mut map = BTreeMap::new();
-    for (idx, segment) in line.split(delimiter).enumerate() {
-        let value = segment.trim().parse::<f32>().ok()?;
+    let tokens = line
+        .split(delimiter)
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+
+    let mut values = Vec::new();
+    let mut started = false;
+
+    for segment in tokens {
+        let Some(value) = parse_numeric_token(segment) else {
+            if started {
+                return None;
+            }
+            continue;
+        };
+
+        started = true;
+        let idx = values.len();
         let name = custom_names
             .get(idx)
             .cloned()
             .unwrap_or_else(|| format!("ch{}", idx + 1));
-        map.insert(name, value);
+        values.push((name, value));
     }
 
-    if map.is_empty() {
+    if values.is_empty() {
         None
     } else {
         Some(ParsedLine {
-            values: map.into_iter().collect(),
+            schema: ParsedSchema::Csv {
+                channels: values.len(),
+            },
+            values,
         })
+    }
+}
+
+fn parse_numeric_token(token: &str) -> Option<f32> {
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let bytes = trimmed.as_bytes();
+    let mut index = 0usize;
+
+    if matches!(bytes.first(), Some(b'+' | b'-')) {
+        index += 1;
+    }
+
+    let integer_start = index;
+    while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+        index += 1;
+    }
+
+    let mut has_digit = index > integer_start;
+    if bytes.get(index) == Some(&b'.') {
+        index += 1;
+        let fraction_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+        has_digit |= index > fraction_start;
+    }
+
+    if !has_digit {
+        return None;
+    }
+
+    if matches!(bytes.get(index), Some(b'e' | b'E')) {
+        index += 1;
+        if matches!(bytes.get(index), Some(b'+' | b'-')) {
+            index += 1;
+        }
+
+        let exponent_start = index;
+        while bytes.get(index).is_some_and(u8::is_ascii_digit) {
+            index += 1;
+        }
+
+        if index == exponent_start {
+            return None;
+        }
+    }
+
+    let (number_text, unit_text) = trimmed.split_at(index);
+    if !valid_unit_suffix(unit_text) {
+        return None;
+    }
+
+    number_text.parse::<f32>().ok()
+}
+
+fn valid_unit_suffix(unit_text: &str) -> bool {
+    let trimmed = unit_text.trim();
+    trimmed.is_empty() || trimmed.chars().all(is_unit_char)
+}
+
+fn is_unit_char(ch: char) -> bool {
+    ch.is_alphabetic()
+        || matches!(
+            ch,
+            '%' | '/' | '_' | '-' | '°' | 'Ω' | 'µ' | 'μ' | '*' | '.' | '(' | ')' | '[' | ']'
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_text_line_with_config, ParsedSchema};
+    use crate::config::{ParserConfig, ParserMode};
+
+    fn parser_config() -> ParserConfig {
+        ParserConfig {
+            mode: ParserMode::Auto,
+            csv_delimiter: ',',
+            csv_channel_names: "a,b,c,d".to_owned(),
+        }
+    }
+
+    #[test]
+    fn parses_plain_csv_numbers() {
+        let parsed = parse_text_line_with_config("1,2,3", &parser_config()).unwrap();
+        assert_eq!(parsed.schema, ParsedSchema::Csv { channels: 3 });
+        assert_eq!(
+            parsed.values,
+            vec![
+                ("a".to_owned(), 1.0),
+                ("b".to_owned(), 2.0),
+                ("c".to_owned(), 3.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_prefixed_csv_with_trailing_delimiter() {
+        let parsed = parse_text_line_with_config("P, 1, 2, 3, 4,", &parser_config()).unwrap();
+        assert_eq!(parsed.schema, ParsedSchema::Csv { channels: 4 });
+        assert_eq!(parsed.values.len(), 4);
+        assert_eq!(parsed.values[0].1, 1.0);
+        assert_eq!(parsed.values[3].1, 4.0);
+    }
+
+    #[test]
+    fn parses_csv_numbers_with_units() {
+        let parsed = parse_text_line_with_config("12.3V, 200mA, -5.6°C", &parser_config()).unwrap();
+        assert_eq!(parsed.schema, ParsedSchema::Csv { channels: 3 });
+        assert_eq!(parsed.values[0].1, 12.3);
+        assert_eq!(parsed.values[1].1, 200.0);
+        assert_eq!(parsed.values[2].1, -5.6);
+    }
+
+    #[test]
+    fn parses_key_value_numbers_with_units() {
+        let parsed = parse_text_line_with_config("temp=25.6C,hum=60.2%", &parser_config()).unwrap();
+        assert_eq!(
+            parsed.schema,
+            ParsedSchema::KeyValue {
+                keys: vec!["hum".to_owned(), "temp".to_owned()],
+            }
+        );
+        assert_eq!(
+            parsed.values,
+            vec![("hum".to_owned(), 60.2), ("temp".to_owned(), 25.6)]
+        );
+    }
+
+    #[test]
+    fn rejects_noise_after_numeric_csv_sequence() {
+        let parsed = parse_text_line_with_config("1,2,debug,3", &parser_config());
+        assert!(parsed.is_none());
     }
 }

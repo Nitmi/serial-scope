@@ -7,12 +7,10 @@ use chrono::Local;
 use crossbeam_channel::{Receiver, TryRecvError};
 use eframe::egui::{self, RichText, TextStyle};
 
-use crate::config::{
-    AppConfig, AutoSendConfig, ProtocolAssistantConfig, QuickCommandConfig,
-};
-use crate::parser::{LineAccumulator, ParsedLine};
+use crate::config::{AppConfig, AutoSendConfig, ProtocolAssistantConfig, QuickCommandConfig};
+use crate::parser::{LineAccumulator, ParsedLine, ParsedSchema};
 use crate::serial::{
-    available_port_names, bytes_to_ascii_display, bytes_to_hex_display, build_port_options,
+    available_port_names, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
     DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialSettings,
 };
 use crate::ui::{plot_panel, receive_panel, send_panel, top_bar};
@@ -159,7 +157,10 @@ impl SerialToolApp {
         }
 
         let settings = SerialSettings::from(self.config.serial.clone());
-        self.serial_manager.send(GuiToSerialMessage::Open { port_name, settings });
+        self.serial_manager.send(GuiToSerialMessage::Open {
+            port_name,
+            settings,
+        });
     }
 
     pub fn close_port(&mut self) {
@@ -197,7 +198,10 @@ impl SerialToolApp {
         let payload_len = payload.len();
         self.stats.tx_bytes += payload_len as u64;
         self.serial_manager.send(GuiToSerialMessage::Send(payload));
-        self.status_text = format!("本次发送 {} 字节，累计 TX {} 字节", payload_len, self.stats.tx_bytes);
+        self.status_text = format!(
+            "本次发送 {} 字节，累计 TX {} 字节",
+            payload_len, self.stats.tx_bytes
+        );
 
         let history_item = QuickCommandConfig {
             name: format!("{} {}", mode.label(), Local::now().format("%H:%M:%S")),
@@ -374,7 +378,9 @@ impl SerialToolApp {
             SerialEvent::DataReceived(bytes) => {
                 self.stats.rx_bytes += bytes.len() as u64;
                 self.push_receive_record(bytes.clone());
-                let parsed = self.line_accumulator.push_bytes(&bytes, &self.config.parser);
+                let parsed = self
+                    .line_accumulator
+                    .push_bytes(&bytes, &self.config.parser);
                 self.consume_parsed_lines(parsed);
             }
         }
@@ -393,7 +399,10 @@ impl SerialToolApp {
             return;
         }
 
-        let record = ReceiveRecord { timestamp, data: bytes };
+        let record = ReceiveRecord {
+            timestamp,
+            data: bytes,
+        };
         if ends_with_line_break(&record.data) {
             self.store_receive_record(record);
         } else {
@@ -413,7 +422,7 @@ impl SerialToolApp {
             return;
         }
         for parsed in parsed_lines {
-            self.chart_state.push(parsed, MAX_PLOT_POINTS);
+            self.chart_state.ingest(parsed, MAX_PLOT_POINTS);
         }
     }
 
@@ -428,7 +437,10 @@ impl SerialToolApp {
         }
 
         let now = Instant::now();
-        if self.next_auto_send_at.is_some_and(|deadline| now >= deadline) {
+        if self
+            .next_auto_send_at
+            .is_some_and(|deadline| now >= deadline)
+        {
             let input = self.send_input.clone();
             let mode = self.send_mode;
             if let Err(err) = self.send_payload(mode, &input, false) {
@@ -438,11 +450,14 @@ impl SerialToolApp {
                 return;
             }
             self.auto_send_counter = self.auto_send_counter.saturating_add(1);
-            if self.auto_send_repeat_limit > 0 && self.auto_send_counter >= self.auto_send_repeat_limit {
+            if self.auto_send_repeat_limit > 0
+                && self.auto_send_counter >= self.auto_send_repeat_limit
+            {
                 self.auto_send_enabled = false;
                 self.next_auto_send_at = None;
             } else {
-                self.next_auto_send_at = Some(now + Duration::from_millis(self.auto_send_interval_ms.max(50)));
+                self.next_auto_send_at =
+                    Some(now + Duration::from_millis(self.auto_send_interval_ms.max(50)));
             }
         }
     }
@@ -453,8 +468,10 @@ impl SerialToolApp {
         if elapsed < 0.5 {
             return;
         }
-        self.rx_rate_bps = (self.stats.rx_bytes.saturating_sub(self.last_rx_snapshot)) as f64 / elapsed;
-        self.tx_rate_bps = (self.stats.tx_bytes.saturating_sub(self.last_tx_snapshot)) as f64 / elapsed;
+        self.rx_rate_bps =
+            (self.stats.rx_bytes.saturating_sub(self.last_rx_snapshot)) as f64 / elapsed;
+        self.tx_rate_bps =
+            (self.stats.tx_bytes.saturating_sub(self.last_tx_snapshot)) as f64 / elapsed;
         self.last_rate_snapshot = now;
         self.last_rx_snapshot = self.stats.rx_bytes;
         self.last_tx_snapshot = self.stats.tx_bytes;
@@ -580,6 +597,9 @@ pub struct PlotState {
     pub x_zoom: f64,
     pub y_zoom: f64,
     pub sidebar_width: f32,
+    locked_schema: Option<ParsedSchema>,
+    pending_schema: Option<PendingSchema>,
+    last_filter_message: Option<String>,
     pub series: BTreeMap<String, VecDeque<[f64; 2]>>,
     pub visible: BTreeSet<String>,
 }
@@ -593,14 +613,93 @@ impl Default for PlotState {
             x_zoom: 1.0,
             y_zoom: 1.0,
             sidebar_width: 280.0,
+            locked_schema: None,
+            pending_schema: None,
+            last_filter_message: None,
             series: BTreeMap::new(),
             visible: BTreeSet::new(),
         }
     }
 }
 
+struct PendingSchema {
+    schema: ParsedSchema,
+    lines: Vec<ParsedLine>,
+}
+
 impl PlotState {
-    pub fn push(&mut self, parsed: ParsedLine, max_points: usize) {
+    pub fn ingest(&mut self, parsed: ParsedLine, max_points: usize) {
+        if self.locked_schema.as_ref() == Some(&parsed.schema) {
+            self.pending_schema = None;
+            self.push_line(parsed, max_points);
+            return;
+        }
+
+        let schema_label = parsed.schema.label();
+        let pending = self.pending_schema.take();
+
+        if self.locked_schema.is_some() {
+            let mut pending = match pending {
+                Some(mut pending) if pending.schema == parsed.schema => {
+                    pending.lines.push(parsed);
+                    pending
+                }
+                _ => PendingSchema {
+                    schema: parsed.schema.clone(),
+                    lines: vec![parsed],
+                },
+            };
+
+            if pending.lines.len() >= 3 {
+                let lines = pending.lines.drain(..).collect::<Vec<_>>();
+                let new_schema = pending.schema.clone();
+                self.clear_series_data();
+                self.locked_schema = Some(new_schema.clone());
+                self.last_filter_message = Some(format!(
+                    "检测到新的稳定格式，已切换到 {}",
+                    new_schema.label()
+                ));
+                for line in lines {
+                    self.push_line(line, max_points);
+                }
+            } else {
+                self.pending_schema = Some(pending);
+                self.last_filter_message =
+                    Some(format!("已过滤不匹配数据，候选格式: {schema_label}"));
+            }
+            return;
+        }
+
+        let mut pending = match pending {
+            Some(mut pending) if pending.schema == parsed.schema => {
+                pending.lines.push(parsed);
+                pending
+            }
+            _ => PendingSchema {
+                schema: parsed.schema.clone(),
+                lines: vec![parsed],
+            },
+        };
+
+        if pending.lines.len() >= 3 {
+            let lines = pending.lines.drain(..).collect::<Vec<_>>();
+            let locked = pending.schema.clone();
+            self.locked_schema = Some(locked.clone());
+            self.last_filter_message = Some(format!("已锁定绘图格式: {}", locked.label()));
+            for line in lines {
+                self.push_line(line, max_points);
+            }
+        } else {
+            self.last_filter_message = Some(format!(
+                "正在识别主格式: {} ({}/3)",
+                schema_label,
+                pending.lines.len()
+            ));
+            self.pending_schema = Some(pending);
+        }
+    }
+
+    fn push_line(&mut self, parsed: ParsedLine, max_points: usize) {
         for (name, value) in parsed.values {
             let points = self.series.entry(name.clone()).or_default();
             self.visible.insert(name);
@@ -613,6 +712,13 @@ impl PlotState {
     }
 
     pub fn clear(&mut self) {
+        self.clear_series_data();
+        self.locked_schema = None;
+        self.pending_schema = None;
+        self.last_filter_message = None;
+    }
+
+    fn clear_series_data(&mut self) {
         self.next_index = 0.0;
         self.series.clear();
         self.visible.clear();
@@ -623,7 +729,11 @@ impl PlotState {
     }
 
     pub fn paused_label(&self) -> &'static str {
-        if self.paused { "恢复绘图" } else { "暂停绘图" }
+        if self.paused {
+            "恢复绘图"
+        } else {
+            "暂停绘图"
+        }
     }
 
     pub fn is_paused(&self) -> bool {
@@ -657,10 +767,24 @@ impl PlotState {
         Some((center - span * 0.6, center + span * 0.6))
     }
 
-
     pub fn clear_series(&mut self, name: &str) {
         self.series.remove(name);
         self.visible.remove(name);
+    }
+
+    pub fn schema_status_text(&self) -> String {
+        if let Some(message) = &self.last_filter_message {
+            if let Some(locked) = &self.locked_schema {
+                return format!("{} | 当前主格式: {}", message, locked.label());
+            }
+            return message.clone();
+        }
+
+        if let Some(locked) = &self.locked_schema {
+            return format!("当前主格式: {}", locked.label());
+        }
+
+        "等待稳定的绘图数据格式（连续 3 条一致数据后开始绘图）".to_owned()
     }
 
     pub fn visible_series_names(&self) -> Vec<String> {
@@ -710,9 +834,15 @@ pub fn display_receive_data(mode: DisplayMode, bytes: &[u8]) -> String {
 pub fn preview_text_line(bytes: &[u8]) -> Option<String> {
     let text = String::from_utf8_lossy(bytes);
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let line = normalized.lines().find(|line| !line.trim().is_empty())?.trim();
+    let line = normalized
+        .lines()
+        .find(|line| !line.trim().is_empty())?
+        .trim();
     let preview = if line.chars().count() > MAX_LINE_PREVIEW_CHARS {
-        let mut shortened = line.chars().take(MAX_LINE_PREVIEW_CHARS).collect::<String>();
+        let mut shortened = line
+            .chars()
+            .take(MAX_LINE_PREVIEW_CHARS)
+            .collect::<String>();
         shortened.push_str("...");
         shortened
     } else {
@@ -773,4 +903,84 @@ fn modbus_crc16(data: &[u8]) -> u16 {
         }
     }
     crc
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlotState;
+    use crate::parser::{ParsedLine, ParsedSchema};
+
+    fn csv_line(index: f32) -> ParsedLine {
+        ParsedLine {
+            schema: ParsedSchema::Csv { channels: 2 },
+            values: vec![("ch1".to_owned(), index), ("ch2".to_owned(), index + 10.0)],
+        }
+    }
+
+    fn kv_line(value: f32) -> ParsedLine {
+        ParsedLine {
+            schema: ParsedSchema::KeyValue {
+                keys: vec!["hum".to_owned(), "temp".to_owned()],
+            },
+            values: vec![("hum".to_owned(), value), ("temp".to_owned(), value + 1.0)],
+        }
+    }
+
+    #[test]
+    fn locks_schema_after_three_matching_lines() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        assert!(state.series.is_empty());
+
+        state.ingest(csv_line(3.0), 32);
+        assert_eq!(state.visible_series_names().len(), 2);
+        assert_eq!(state.series["ch1"].len(), 3);
+        assert!(state.schema_status_text().contains("当前主格式"));
+    }
+
+    #[test]
+    fn drops_single_mismatched_line_after_lock() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(3.0), 32);
+        state.ingest(kv_line(50.0), 32);
+
+        assert_eq!(state.series["ch1"].len(), 3);
+        assert!(!state.series.contains_key("hum"));
+        assert!(state.schema_status_text().contains("已过滤不匹配数据"));
+    }
+
+    #[test]
+    fn switches_schema_after_three_consecutive_new_lines() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(3.0), 32);
+        state.ingest(kv_line(50.0), 32);
+        state.ingest(kv_line(51.0), 32);
+        state.ingest(kv_line(52.0), 32);
+
+        assert!(!state.series.contains_key("ch1"));
+        assert_eq!(state.series["hum"].len(), 3);
+        assert!(state.schema_status_text().contains("已切换到"));
+    }
+
+    #[test]
+    fn clear_resets_locked_schema_and_candidates() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.clear();
+
+        assert!(state.series.is_empty());
+        assert!(state
+            .schema_status_text()
+            .contains("等待稳定的绘图数据格式"));
+    }
 }
