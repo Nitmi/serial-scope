@@ -4,34 +4,36 @@ use crate::app::SerialToolApp;
 use crate::config::ParserMode;
 use crate::serial::{DataBitsSetting, ParitySetting, StopBitsSetting};
 
+const INK: Color32 = Color32::from_rgb(48, 56, 66);
+const MUTED: Color32 = Color32::from_rgb(108, 116, 126);
+const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
+const SURFACE: Color32 = Color32::from_rgb(250, 248, 244);
+const SURFACE_SOFT: Color32 = Color32::from_rgb(244, 241, 236);
+const LINE: Color32 = Color32::from_rgb(214, 220, 228);
+
 pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
     egui::TopBottomPanel::top("top_bar")
         .resizable(false)
         .show(ctx, |ui| {
             egui::Frame::default()
-                .inner_margin(egui::Margin::same(10.0))
+                .inner_margin(egui::Margin::same(12.0))
                 .show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.heading("串口调试助手");
-                        ui.separator();
-                        ui.label(app.connection_rich_text());
-                        ui.separator();
-                        ui.label(format!("TX: {} B", app.stats.tx_bytes));
-                        ui.label(format!("RX: {} B", app.stats.rx_bytes));
-                        ui.separator();
-                        ui.label(format!("TX 速率: {:.1} B/s", app.tx_rate_bps));
-                        ui.label(format!("RX 速率: {:.1} B/s", app.rx_rate_bps));
-                        ui.separator();
-                        ui.label(format!("运行时长: {}", app.uptime_text()));
+                        ui.heading(RichText::new("串口调试助手").color(INK));
+                        status_chip(ui, app);
+                        metric_chip(ui, "TX", format!("{} B", app.stats.tx_bytes));
+                        metric_chip(ui, "RX", format!("{} B", app.stats.rx_bytes));
+                        metric_chip(ui, "TX 速率", format!("{:.1} B/s", app.tx_rate_bps));
+                        metric_chip(ui, "RX 速率", format!("{:.1} B/s", app.rx_rate_bps));
+                        metric_chip(ui, "运行时长", app.uptime_text());
                     });
 
-                    ui.add_space(8.0);
-                    primary_toolbar_frame(ui.style()).show(ui, |ui| {
+                    ui.add_space(10.0);
+                    primary_band().show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.vertical(|ui| {
-                                ui.label(RichText::new("串口设备").strong());
+                            labeled_column(ui, "串口设备", |ui| {
                                 ComboBox::from_id_salt("port_name")
-                                    .width(220.0)
+                                    .width(240.0)
                                     .selected_text(if app.config.serial.port_name.is_empty() {
                                         "选择串口".to_owned()
                                     } else {
@@ -54,24 +56,10 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                     });
                             });
 
-                            ui.add_space(4.0);
-                            ui.vertical(|ui| {
-                                ui.label(RichText::new("连接").strong());
-                                if ui
-                                    .add_sized([86.0, 28.0], egui::Button::new("刷新串口"))
-                                    .clicked()
-                                {
-                                    app.refresh_ports();
-                                }
-                            });
-
-                            ui.separator();
-
-                            ui.vertical(|ui| {
-                                ui.label(RichText::new("波特率").strong());
+                            labeled_column(ui, "波特率", |ui| {
                                 let baud_response = ui.add(
                                     egui::TextEdit::singleline(app.baud_rate_input())
-                                        .desired_width(110.0)
+                                        .desired_width(120.0)
                                         .hint_text("115200"),
                                 );
                                 if baud_response.lost_focus()
@@ -84,27 +72,34 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                 }
                             });
 
-                            ui.separator();
-
                             ui.vertical(|ui| {
-                                ui.label(RichText::new("串口开关").strong());
+                                ui.label(RichText::new("快速操作").small().color(MUTED));
                                 ui.horizontal(|ui| {
-                                    let open_btn = ui.add_enabled(
-                                        !app.is_connected,
-                                        egui::Button::new(RichText::new("打开串口").strong()),
-                                    );
-                                    if open_btn.clicked() {
+                                    if ui
+                                        .add_sized([86.0, 30.0], egui::Button::new("刷新串口"))
+                                        .clicked()
+                                    {
+                                        app.refresh_ports();
+                                    }
+
+                                    let open_button = egui::Button::new(
+                                        RichText::new("打开串口").strong().color(Color32::WHITE),
+                                    )
+                                    .fill(ACCENT);
+                                    if ui.add_enabled(!app.is_connected, open_button).clicked() {
                                         app.apply_baud_rate_input();
                                         if app.last_error.is_none() {
                                             app.open_port();
                                         }
                                     }
 
-                                    let close_btn = ui.add_enabled(
-                                        app.is_connected,
-                                        egui::Button::new("关闭串口"),
-                                    );
-                                    if close_btn.clicked() {
+                                    if ui
+                                        .add_enabled(
+                                            app.is_connected,
+                                            egui::Button::new("关闭串口"),
+                                        )
+                                        .clicked()
+                                    {
                                         app.close_port();
                                     }
                                 });
@@ -112,75 +107,68 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         });
                     });
 
-                    ui.add_space(6.0);
-                    egui::CollapsingHeader::new("高级串口参数")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label("数据位");
-                                enum_combo_data_bits(ui, app);
-                                ui.separator();
-                                ui.label("停止位");
-                                enum_combo_stop_bits(ui, app);
-                                ui.separator();
-                                ui.label("校验位");
-                                enum_combo_parity(ui, app);
-                            });
-                        });
-
-                    ui.add_space(6.0);
-                    secondary_toolbar_frame(ui.style()).show(ui, |ui| {
+                    ui.add_space(8.0);
+                    secondary_band().show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("解析").strong());
-                            ComboBox::from_id_salt("parser_mode")
-                                .selected_text(app.config.parser.mode.label())
-                                .show_ui(ui, |ui| {
-                                    for mode in ParserMode::ALL {
-                                        if ui
-                                            .selectable_value(
-                                                &mut app.config.parser.mode,
-                                                mode,
-                                                mode.label(),
-                                            )
-                                            .changed()
-                                        {
-                                            app.persist_config();
+                            labeled_inline(ui, "解析", |ui| {
+                                ComboBox::from_id_salt("parser_mode")
+                                    .selected_text(app.config.parser.mode.label())
+                                    .show_ui(ui, |ui| {
+                                        for mode in ParserMode::ALL {
+                                            if ui
+                                                .selectable_value(
+                                                    &mut app.config.parser.mode,
+                                                    mode,
+                                                    mode.label(),
+                                                )
+                                                .changed()
+                                            {
+                                                app.persist_config();
+                                            }
                                         }
+                                    });
+                            });
+
+                            labeled_inline(ui, "CSV 分隔符", |ui| {
+                                let mut delimiter_text =
+                                    app.config.parser.csv_delimiter.to_string();
+                                if ui
+                                    .add(
+                                        egui::TextEdit::singleline(&mut delimiter_text)
+                                            .desired_width(44.0),
+                                    )
+                                    .changed()
+                                {
+                                    if let Some(ch) = delimiter_text.chars().next() {
+                                        app.config.parser.csv_delimiter = ch;
+                                        app.persist_config();
                                     }
-                                });
-                            ui.label("CSV 分隔符");
-                            let mut delimiter_text = app.config.parser.csv_delimiter.to_string();
-                            if ui
-                                .add(
-                                    egui::TextEdit::singleline(&mut delimiter_text)
-                                        .desired_width(40.0),
-                                )
-                                .changed()
-                            {
-                                if let Some(ch) = delimiter_text.chars().next() {
-                                    app.config.parser.csv_delimiter = ch;
+                                }
+                            });
+
+                            labeled_inline(ui, "通道名", |ui| {
+                                if ui
+                                    .add(
+                                        egui::TextEdit::singleline(
+                                            &mut app.config.parser.csv_channel_names,
+                                        )
+                                        .desired_width(240.0),
+                                    )
+                                    .changed()
+                                {
                                     app.persist_config();
                                 }
-                            }
-                            ui.label("通道名");
-                            if ui
-                                .add(
-                                    egui::TextEdit::singleline(
-                                        &mut app.config.parser.csv_channel_names,
-                                    )
-                                    .desired_width(220.0),
-                                )
-                                .changed()
-                            {
-                                app.persist_config();
-                            }
+                            });
 
                             ui.separator();
-                            ui.label(RichText::new("导出前缀").strong());
-                            ui.add(
-                                egui::TextEdit::singleline(&mut app.export_base_name)
-                                    .desired_width(180.0),
-                            );
+
+                            labeled_inline(ui, "导出前缀", |ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut app.export_base_name)
+                                        .desired_width(220.0),
+                                );
+                            });
+
                             if ui.button("导出曲线 CSV").clicked() {
                                 app.export_plot_csv();
                             }
@@ -190,35 +178,105 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         });
                     });
 
-                    ui.add_space(6.0);
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            RichText::new("状态")
-                                .strong()
-                                .color(Color32::from_rgb(120, 172, 255)),
-                        );
-                        ui.label(&app.status_text);
-                        if let Some(error) = &app.last_error {
-                            ui.separator();
-                            ui.label(RichText::new(error).color(Color32::from_rgb(255, 128, 128)));
-                        }
+                    ui.add_space(8.0);
+                    egui::CollapsingHeader::new(
+                        RichText::new("高级串口参数").color(MUTED).strong(),
+                    )
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            labeled_inline(ui, "数据位", |ui| enum_combo_data_bits(ui, app));
+                            labeled_inline(ui, "停止位", |ui| enum_combo_stop_bits(ui, app));
+                            labeled_inline(ui, "校验位", |ui| enum_combo_parity(ui, app));
+                        });
                     });
+
+                    ui.add_space(8.0);
+                    egui::Frame::none()
+                        .fill(SURFACE_SOFT)
+                        .stroke(Stroke::new(1.0, LINE))
+                        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new("状态").strong().color(ACCENT));
+                                ui.label(RichText::new(&app.status_text).color(INK));
+                                if let Some(error) = &app.last_error {
+                                    ui.separator();
+                                    ui.label(
+                                        RichText::new(error).color(Color32::from_rgb(194, 88, 88)),
+                                    );
+                                }
+                            });
+                        });
                 });
         });
 }
 
-fn primary_toolbar_frame(style: &egui::Style) -> egui::Frame {
-    egui::Frame::group(style)
-        .fill(Color32::from_rgb(22, 28, 35))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(52, 110, 178)))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+fn primary_band() -> egui::Frame {
+    egui::Frame::none()
+        .fill(SURFACE)
+        .stroke(Stroke::new(1.0, LINE))
+        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .outer_margin(egui::Margin::same(0.0))
 }
 
-fn secondary_toolbar_frame(style: &egui::Style) -> egui::Frame {
-    egui::Frame::group(style)
-        .fill(Color32::from_rgb(20, 24, 30))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(44, 52, 62)))
-        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
+fn secondary_band() -> egui::Frame {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(246, 243, 238))
+        .stroke(Stroke::new(1.0, LINE))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .outer_margin(egui::Margin::same(0.0))
+}
+
+fn status_chip(ui: &mut egui::Ui, app: &SerialToolApp) {
+    let (text, fill, ink) = if app.is_connected {
+        (
+            "已连接",
+            Color32::from_rgb(222, 240, 228),
+            Color32::from_rgb(52, 122, 88),
+        )
+    } else {
+        (
+            "未连接",
+            Color32::from_rgb(249, 226, 226),
+            Color32::from_rgb(184, 85, 85),
+        )
+    };
+
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, Color32::TRANSPARENT))
+        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).strong().color(ink));
+        });
+}
+
+fn metric_chip(ui: &mut egui::Ui, label: &str, value: String) {
+    egui::Frame::none()
+        .fill(SURFACE_SOFT)
+        .stroke(Stroke::new(1.0, LINE))
+        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(label).small().color(MUTED));
+                ui.label(RichText::new(value).strong().color(INK));
+            });
+        });
+}
+
+fn labeled_column(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical(|ui| {
+        ui.label(RichText::new(label).small().color(MUTED));
+        add_contents(ui);
+    });
+}
+
+fn labeled_inline(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(label).small().color(MUTED));
+        add_contents(ui);
+    });
 }
 
 fn enum_combo_data_bits(ui: &mut egui::Ui, app: &mut SerialToolApp) {

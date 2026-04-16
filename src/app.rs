@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use crossbeam_channel::{Receiver, TryRecvError};
-use eframe::egui::{self, RichText, TextStyle};
+use eframe::egui::{self, TextStyle};
 
 use crate::config::{
     AppConfig, AutoSendConfig, PlotLayoutConfig, ProtocolAssistantConfig, QuickCommandConfig,
@@ -514,15 +514,6 @@ impl SerialToolApp {
         }
     }
 
-    pub fn connection_rich_text(&self) -> RichText {
-        let (label, color) = if self.is_connected {
-            ("已连接", egui::Color32::from_rgb(78, 201, 140))
-        } else {
-            ("未连接", egui::Color32::from_rgb(224, 93, 93))
-        };
-        RichText::new(label).strong().color(color)
-    }
-
     pub fn uptime_text(&self) -> String {
         let seconds = self.start_time.elapsed().as_secs();
         let hours = seconds / 3600;
@@ -547,17 +538,33 @@ impl eframe::App for SerialToolApp {
 
         egui::SidePanel::right("send_panel")
             .resizable(true)
-            .default_width(360.0)
+            .default_width(372.0)
+            .min_width(320.0)
             .show(ctx, |ui| {
                 send_panel::show(ui, self);
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_view, MainView::Monitor, "串口监视");
-                ui.selectable_value(&mut self.active_view, MainView::Plot, "数据绘图");
-            });
-            ui.add_space(8.0);
+            egui::Frame::group(ui.style())
+                .fill(egui::Color32::from_rgb(249, 247, 243))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgb(216, 221, 229),
+                ))
+                .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("工作区")
+                                .strong()
+                                .color(egui::Color32::from_rgb(95, 108, 124)),
+                        );
+                        ui.separator();
+                        ui.selectable_value(&mut self.active_view, MainView::Monitor, "串口监视");
+                        ui.selectable_value(&mut self.active_view, MainView::Plot, "数据绘图");
+                    });
+                });
+            ui.add_space(10.0);
 
             match self.active_view {
                 MainView::Monitor => receive_panel::show(ui, self),
