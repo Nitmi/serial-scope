@@ -9,11 +9,16 @@ const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
 const LINE: Color32 = Color32::from_rgb(216, 221, 229);
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
+    let panel_bottom_gap = 6.0;
+    let frame_vertical_padding = 24.0;
+    let panel_content_height =
+        (ui.available_height() - panel_bottom_gap - frame_vertical_padding).max(0.0);
     egui::Frame::group(ui.style())
         .fill(Color32::from_rgb(249, 247, 243))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
+            ui.set_min_height(panel_content_height);
             ui.heading(RichText::new("发送区").color(INK));
 
             ui.add_space(10.0);
@@ -196,6 +201,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                     .color(MUTED),
             );
         });
+    ui.add_space(panel_bottom_gap);
 }
 
 fn section_frame() -> egui::Frame {

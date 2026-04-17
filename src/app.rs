@@ -530,9 +530,17 @@ impl eframe::App for SerialToolApp {
                 send_panel::show(ui, self);
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| match self.active_view {
-            MainView::Monitor => receive_panel::show(ui, self),
-            MainView::Plot => plot_panel::show(ui, self),
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let panel_alignment_trim = 4.5;
+            let panel_height = (ui.available_height() - panel_alignment_trim).max(0.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), panel_height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| match self.active_view {
+                    MainView::Monitor => receive_panel::show(ui, self),
+                    MainView::Plot => plot_panel::show(ui, self),
+                },
+            );
         });
 
         ctx.request_repaint_after(Duration::from_millis(GUI_REFRESH_MS));
