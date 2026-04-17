@@ -42,12 +42,16 @@ fn serial_worker(cmd_rx: Receiver<GuiToSerialMessage>, evt_tx: Sender<SerialEven
     loop {
         while let Ok(message) = cmd_rx.try_recv() {
             match message {
-                GuiToSerialMessage::Open { port_name, settings } => {
+                GuiToSerialMessage::Open {
+                    port_name,
+                    settings,
+                } => {
                     if port.is_some() {
                         let _ = evt_tx.send(SerialEvent::Status("正在切换串口连接".to_owned()));
                     }
                     port = None;
                     current_name = None;
+                    let _ = evt_tx.send(SerialEvent::Status(format!("正在打开: {port_name}")));
 
                     match open_port(&port_name, &settings) {
                         Ok(opened) => {
@@ -74,7 +78,8 @@ fn serial_worker(cmd_rx: Receiver<GuiToSerialMessage>, evt_tx: Sender<SerialEven
                             let _ = evt_tx.send(SerialEvent::Error(format!("发送失败: {err}")));
                             port = None;
                             current_name = None;
-                            let _ = evt_tx.send(SerialEvent::Disconnected("发送时连接中断".to_owned()));
+                            let _ =
+                                evt_tx.send(SerialEvent::Disconnected("发送时连接中断".to_owned()));
                         }
                     } else {
                         let _ = evt_tx.send(SerialEvent::Error("串口未打开，无法发送".to_owned()));

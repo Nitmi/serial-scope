@@ -34,95 +34,116 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                     });
 
                     ui.add_space(10.0);
-                    primary_band().show(ui, |ui| {
-                        let label_height = ui.text_style_height(&egui::TextStyle::Small);
-                        let label_gap = ui.spacing().item_spacing.y;
-                        let field_height = ui.spacing().interact_size.y;
-                        let button_extension = 8.0;
-                        let button_drop = 2.0;
+                    let side_error = app
+                        .last_error
+                        .as_ref()
+                        .filter(|error| !error.trim().is_empty())
+                        .cloned();
+                    ui.horizontal(|ui| {
+                        let band_response = primary_band().show(ui, |ui| {
+                            let label_height = ui.text_style_height(&egui::TextStyle::Small);
+                            let label_gap = ui.spacing().item_spacing.y;
+                            let field_height = ui.spacing().interact_size.y;
+                            let button_extension = 8.0;
+                            let button_drop = 2.0;
 
-                        ui.horizontal(|ui| {
-                            labeled_column(ui, "串口设备", |ui| {
-                                ComboBox::from_id_salt("port_name")
-                                    .width(240.0)
-                                    .selected_text(if app.config.serial.port_name.is_empty() {
-                                        "选择串口".to_owned()
-                                    } else {
-                                        app.config.serial.port_name.clone()
-                                    })
-                                    .show_ui(ui, |ui| {
-                                        let ports = app.port_names.clone();
-                                        for port in ports {
-                                            if ui
-                                                .selectable_value(
-                                                    &mut app.config.serial.port_name,
-                                                    port.clone(),
-                                                    port.as_str(),
-                                                )
-                                                .changed()
-                                            {
-                                                app.persist_config();
+                            ui.horizontal(|ui| {
+                                labeled_column(ui, "串口设备", |ui| {
+                                    ComboBox::from_id_salt("port_name")
+                                        .width(240.0)
+                                        .selected_text(if app.config.serial.port_name.is_empty() {
+                                            "选择串口".to_owned()
+                                        } else {
+                                            app.config.serial.port_name.clone()
+                                        })
+                                        .show_ui(ui, |ui| {
+                                            let ports = app.port_names.clone();
+                                            for port in ports {
+                                                if ui
+                                                    .selectable_value(
+                                                        &mut app.config.serial.port_name,
+                                                        port.clone(),
+                                                        port.as_str(),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    app.persist_config();
+                                                }
                                             }
-                                        }
-                                    });
-                            });
+                                        });
+                                });
 
-                            ui.add_space(8.0);
+                                ui.add_space(8.0);
 
-                            labeled_column(ui, "波特率", |ui| {
-                                ComboBox::from_id_salt("baud_rate")
-                                    .width(140.0)
-                                    .selected_text(app.config.serial.baud_rate.to_string())
-                                    .show_ui(ui, |ui| {
-                                        for baud_rate in COMMON_BAUD_RATES {
-                                            if ui
-                                                .selectable_value(
-                                                    &mut app.config.serial.baud_rate,
-                                                    baud_rate,
-                                                    baud_rate.to_string(),
-                                                )
-                                                .changed()
-                                            {
-                                                app.persist_config();
+                                labeled_column(ui, "波特率", |ui| {
+                                    ComboBox::from_id_salt("baud_rate")
+                                        .width(140.0)
+                                        .selected_text(app.config.serial.baud_rate.to_string())
+                                        .show_ui(ui, |ui| {
+                                            for baud_rate in COMMON_BAUD_RATES {
+                                                if ui
+                                                    .selectable_value(
+                                                        &mut app.config.serial.baud_rate,
+                                                        baud_rate,
+                                                        baud_rate.to_string(),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    app.persist_config();
+                                                }
                                             }
-                                        }
-                                    });
-                            });
+                                        });
+                                });
 
-                            ui.add_space(8.0);
+                                ui.add_space(8.0);
 
-                            ui.vertical(|ui| {
-                                ui.add_space(
-                                    (label_height + label_gap - button_extension + button_drop)
-                                        .max(0.0),
-                                );
-                                let connect_label = if app.is_connected {
-                                    "关闭串口"
-                                } else {
-                                    "打开串口"
-                                };
-                                let button_fill = if app.is_connected {
-                                    Color32::from_rgb(122, 133, 148)
-                                } else {
-                                    ACCENT
-                                };
-
-                                if centered_action_button(
-                                    ui,
-                                    connect_label,
-                                    egui::vec2(132.0, field_height + button_extension),
-                                    button_fill,
-                                )
-                                .clicked()
-                                {
-                                    if app.is_connected {
-                                        app.close_port();
+                                ui.vertical(|ui| {
+                                    ui.add_space(
+                                        (label_height + label_gap - button_extension + button_drop)
+                                            .max(0.0),
+                                    );
+                                    let connect_label = if app.is_connected {
+                                        "关闭串口"
                                     } else {
-                                        app.open_port();
+                                        "打开串口"
+                                    };
+                                    let button_fill = if app.is_connected {
+                                        Color32::from_rgb(122, 133, 148)
+                                    } else {
+                                        ACCENT
+                                    };
+
+                                    if centered_action_button(
+                                        ui,
+                                        connect_label,
+                                        egui::vec2(132.0, field_height + button_extension),
+                                        button_fill,
+                                    )
+                                    .clicked()
+                                    {
+                                        if app.is_connected {
+                                            app.close_port();
+                                        } else {
+                                            app.open_port();
+                                        }
                                     }
-                                }
+                                });
                             });
                         });
+
+                        if let Some(error) = side_error.as_deref() {
+                            ui.add_space(12.0);
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(
+                                    ui.available_width().max(0.0),
+                                    band_response.response.rect.height(),
+                                ),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    error_card(ui, error);
+                                },
+                            );
+                        }
                     });
 
                     ui.add_space(8.0);
@@ -137,26 +158,6 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                             labeled_inline(ui, "校验位", |ui| enum_combo_parity(ui, app));
                         });
                     });
-
-                    if let Some(error) = &app.last_error {
-                        ui.add_space(8.0);
-                        egui::Frame::none()
-                            .fill(Color32::from_rgb(249, 232, 232))
-                            .stroke(Stroke::new(1.0, Color32::from_rgb(235, 198, 198)))
-                            .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-                            .show(ui, |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.label(
-                                        RichText::new("错误")
-                                            .strong()
-                                            .color(Color32::from_rgb(184, 82, 82)),
-                                    );
-                                    ui.label(
-                                        RichText::new(error).color(Color32::from_rgb(184, 82, 82)),
-                                    );
-                                });
-                            });
-                    }
                 });
         });
 }
@@ -167,6 +168,16 @@ fn primary_band() -> egui::Frame {
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .outer_margin(egui::Margin::same(0.0))
+}
+
+fn error_card(ui: &mut egui::Ui, error: &str) {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(249, 232, 232))
+        .stroke(Stroke::new(1.0, Color32::from_rgb(235, 198, 198)))
+        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.label(RichText::new(error).color(Color32::from_rgb(184, 82, 82)));
+        });
 }
 
 fn centered_action_button(

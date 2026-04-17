@@ -167,6 +167,8 @@ impl SerialToolApp {
             return;
         }
 
+        self.last_error = None;
+        self.status_text = format!("正在打开: {port_name}");
         let settings = SerialSettings::from(self.config.serial.clone());
         self.serial_manager.send(GuiToSerialMessage::Open {
             port_name,
