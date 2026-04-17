@@ -54,17 +54,7 @@ pub enum ParserMode {
     KeyValue,
 }
 
-impl ParserMode {
-    pub const ALL: [ParserMode; 3] = [ParserMode::Auto, ParserMode::Csv, ParserMode::KeyValue];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ParserMode::Auto => "自动",
-            ParserMode::Csv => "CSV",
-            ParserMode::KeyValue => "Key=Value",
-        }
-    }
-}
+impl ParserMode {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParserConfig {
@@ -94,7 +84,7 @@ impl Default for AppConfig {
             serial: SerialPortConfig::default(),
             receive_mode: DisplayMode::Ascii,
             send_mode: DisplayMode::Ascii,
-            show_timestamps: true,
+            show_timestamps: false,
             quick_commands: vec![
                 QuickCommandConfig {
                     name: "AT".to_owned(),

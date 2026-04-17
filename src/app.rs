@@ -36,7 +36,7 @@ pub struct SerialToolApp {
     pub show_timestamps: bool,
     pub send_input: String,
     pub receive_lines: VecDeque<ReceiveRecord>,
-    pending_receive: Option<ReceiveRecord>,
+    pending_receive: Option<Vec<u8>>,
     line_accumulator: LineAccumulator,
     pub chart_state: PlotState,
     pub stats: TransferStats,
@@ -273,7 +273,7 @@ impl SerialToolApp {
         let path = format!("{}_receive.txt", self.export_base_name.trim());
         let mut text = String::new();
         for record in &self.receive_lines {
-            let content = display_receive_data(self.receive_mode, &record.data);
+            let content = receive_display_text(self.receive_mode, &record.data);
             if self.show_timestamps {
                 text.push_str(&format!("[{}] {}\n", record.timestamp, content));
             } else {
@@ -341,7 +341,7 @@ impl SerialToolApp {
         self.receive_lines
             .iter()
             .filter(|record| {
-                display_receive_data(self.receive_mode, &record.data)
+                receive_display_text(self.receive_mode, &record.data)
                     .to_lowercase()
                     .contains(&needle)
             })
@@ -374,6 +374,8 @@ impl SerialToolApp {
         match event {
             SerialEvent::Connected(name) => {
                 self.is_connected = true;
+                self.pending_receive = None;
+                self.line_accumulator.clear();
                 self.start_time = Instant::now();
                 self.last_rate_snapshot = Instant::now();
                 self.last_rx_snapshot = self.stats.rx_bytes;
@@ -383,6 +385,8 @@ impl SerialToolApp {
             }
             SerialEvent::Disconnected(reason) => {
                 self.is_connected = false;
+                self.pending_receive = None;
+                self.line_accumulator.clear();
                 self.auto_send_enabled = false;
                 self.next_auto_send_at = None;
                 self.status_text = format!("已断开: {reason}");
@@ -402,26 +406,21 @@ impl SerialToolApp {
     }
 
     fn push_receive_record(&mut self, bytes: Vec<u8>) {
-        let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
+        let mut buffer = self.pending_receive.take().unwrap_or_default();
+        buffer.extend_from_slice(&bytes);
 
-        if let Some(mut pending) = self.pending_receive.take() {
-            pending.data.extend_from_slice(&bytes);
-            if ends_with_line_break(&pending.data) {
-                self.store_receive_record(pending);
-            } else {
-                self.pending_receive = Some(pending);
+        while let Some((line, consumed)) = take_complete_line(&buffer) {
+            if !line.is_empty() {
+                self.store_receive_record(ReceiveRecord {
+                    timestamp: Local::now().format("%H:%M:%S%.3f").to_string(),
+                    data: line,
+                });
             }
-            return;
+            buffer.drain(..consumed);
         }
 
-        let record = ReceiveRecord {
-            timestamp,
-            data: bytes,
-        };
-        if ends_with_line_break(&record.data) {
-            self.store_receive_record(record);
-        } else {
-            self.pending_receive = Some(record);
+        if !buffer.is_empty() {
+            self.pending_receive = Some(buffer);
         }
     }
 
@@ -544,6 +543,7 @@ impl eframe::App for SerialToolApp {
             .default_width(372.0)
             .min_width(320.0)
             .show(ctx, |ui| {
+                ui.add_space(6.0);
                 send_panel::show(ui, self);
             });
 
@@ -567,8 +567,18 @@ pub struct ReceiveRecord {
     pub data: Vec<u8>,
 }
 
-fn ends_with_line_break(bytes: &[u8]) -> bool {
-    bytes.ends_with(b"\n") || bytes.ends_with(b"\r")
+fn take_complete_line(buffer: &[u8]) -> Option<(Vec<u8>, usize)> {
+    for (index, byte) in buffer.iter().enumerate() {
+        if *byte == b'\n' || *byte == b'\r' {
+            let consumed = if *byte == b'\r' && buffer.get(index + 1) == Some(&b'\n') {
+                index + 2
+            } else {
+                index + 1
+            };
+            return Some((buffer[..index].to_vec(), consumed));
+        }
+    }
+    None
 }
 
 #[derive(Default)]
@@ -850,6 +860,12 @@ pub fn display_receive_data(mode: DisplayMode, bytes: &[u8]) -> String {
         DisplayMode::Ascii => bytes_to_ascii_display(bytes),
         DisplayMode::Hex => bytes_to_hex_display(bytes),
     }
+}
+
+pub fn receive_display_text(mode: DisplayMode, bytes: &[u8]) -> String {
+    display_receive_data(mode, bytes)
+        .trim_end_matches(['\r', '\n'])
+        .to_owned()
 }
 
 pub fn preview_text_line(bytes: &[u8]) -> Option<String> {

@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, RichText, Stroke};
 
-use crate::app::{mono_text_style, preview_text_line, MainView, SerialToolApp};
+use crate::app::{mono_text_style, receive_display_text, MainView, SerialToolApp};
 use crate::serial::DisplayMode;
 
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
@@ -147,8 +147,7 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 .stick_to_bottom(true)
                 .show(ui, |ui| {
                     for (index, record) in filtered.into_iter().enumerate() {
-                        let content =
-                            crate::app::display_receive_data(app.receive_mode, &record.data);
+                        let content = receive_display_text(app.receive_mode, &record.data);
                         let content_lower = content.to_lowercase();
                         let has_highlight = highlights
                             .iter()
@@ -174,16 +173,11 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                 .color(ACCENT),
                                         );
                                     }
-                                    ui.vertical(|ui| {
-                                        ui.label(
-                                            RichText::new(content.clone())
-                                                .text_style(mono_text_style())
-                                                .color(INK),
-                                        );
-                                        if let Some(preview) = preview_text_line(&record.data) {
-                                            ui.label(RichText::new(preview).small().color(MUTED));
-                                        }
-                                    });
+                                    ui.label(
+                                        RichText::new(content.clone())
+                                            .text_style(mono_text_style())
+                                            .color(INK),
+                                    );
                                 });
                             });
                         ui.add_space(6.0);

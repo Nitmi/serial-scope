@@ -1,14 +1,12 @@
 use eframe::egui::{self, Color32, ComboBox, RichText, Stroke};
 
 use crate::app::SerialToolApp;
-use crate::config::ParserMode;
 use crate::serial::{DataBitsSetting, ParitySetting, StopBitsSetting};
 
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(108, 116, 126);
 const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
 const SURFACE: Color32 = Color32::from_rgb(250, 248, 244);
-const SURFACE_SOFT: Color32 = Color32::from_rgb(244, 241, 236);
 const LINE: Color32 = Color32::from_rgb(214, 220, 228);
 
 pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
@@ -20,11 +18,16 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                 .show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.heading(RichText::new("串口调试助手").color(INK));
+                        ui.add_space(12.0);
                         status_chip(ui, app);
-                        metric_chip(ui, "TX", format!("{} B", app.stats.tx_bytes));
-                        metric_chip(ui, "RX", format!("{} B", app.stats.rx_bytes));
-                        metric_chip(ui, "TX 速率", format!("{:.1} B/s", app.tx_rate_bps));
-                        metric_chip(ui, "RX 速率", format!("{:.1} B/s", app.rx_rate_bps));
+                        ui.add_space(18.0);
+                        metric_text(ui, "TX", format!("{} B", app.stats.tx_bytes));
+                        ui.add_space(12.0);
+                        metric_text(ui, "RX", format!("{} B", app.stats.rx_bytes));
+                        ui.add_space(12.0);
+                        metric_text(ui, "TX 速率", format!("{:.1} B/s", app.tx_rate_bps));
+                        ui.add_space(12.0);
+                        metric_text(ui, "RX 速率", format!("{:.1} B/s", app.rx_rate_bps));
                     });
 
                     ui.add_space(10.0);
@@ -71,8 +74,7 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                 }
                             });
 
-                            ui.vertical(|ui| {
-                                ui.add_space(18.0);
+                            labeled_column(ui, "", |ui| {
                                 ui.horizontal(|ui| {
                                     let connect_label = if app.is_connected {
                                         "关闭串口"
@@ -99,86 +101,6 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                             }
                                         }
                                     }
-                                });
-                            });
-                        });
-                    });
-
-                    ui.add_space(8.0);
-                    secondary_band().show(ui, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            labeled_inline(ui, "解析", |ui| {
-                                ComboBox::from_id_salt("parser_mode")
-                                    .selected_text(app.config.parser.mode.label())
-                                    .show_ui(ui, |ui| {
-                                        for mode in ParserMode::ALL {
-                                            if ui
-                                                .selectable_value(
-                                                    &mut app.config.parser.mode,
-                                                    mode,
-                                                    mode.label(),
-                                                )
-                                                .changed()
-                                            {
-                                                app.persist_config();
-                                            }
-                                        }
-                                    });
-                            });
-
-                            ui.separator();
-
-                            if ui.button("导出曲线 CSV").clicked() {
-                                app.export_plot_csv();
-                            }
-                            if ui.button("导出接收日志").clicked() {
-                                app.export_receive_log();
-                            }
-                        });
-
-                        ui.add_space(6.0);
-                        egui::CollapsingHeader::new(
-                            RichText::new("更多解析/导出设置").small().color(MUTED),
-                        )
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                labeled_inline(ui, "CSV 分隔符", |ui| {
-                                    let mut delimiter_text =
-                                        app.config.parser.csv_delimiter.to_string();
-                                    if ui
-                                        .add(
-                                            egui::TextEdit::singleline(&mut delimiter_text)
-                                                .desired_width(44.0),
-                                        )
-                                        .changed()
-                                    {
-                                        if let Some(ch) = delimiter_text.chars().next() {
-                                            app.config.parser.csv_delimiter = ch;
-                                            app.persist_config();
-                                        }
-                                    }
-                                });
-
-                                labeled_inline(ui, "通道名", |ui| {
-                                    if ui
-                                        .add(
-                                            egui::TextEdit::singleline(
-                                                &mut app.config.parser.csv_channel_names,
-                                            )
-                                            .desired_width(240.0),
-                                        )
-                                        .changed()
-                                    {
-                                        app.persist_config();
-                                    }
-                                });
-
-                                labeled_inline(ui, "导出前缀", |ui| {
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut app.export_base_name)
-                                            .desired_width(220.0),
-                                    );
                                 });
                             });
                         });
@@ -228,14 +150,6 @@ fn primary_band() -> egui::Frame {
         .outer_margin(egui::Margin::same(0.0))
 }
 
-fn secondary_band() -> egui::Frame {
-    egui::Frame::none()
-        .fill(Color32::from_rgb(246, 243, 238))
-        .stroke(Stroke::new(1.0, LINE))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
-        .outer_margin(egui::Margin::same(0.0))
-}
-
 fn status_chip(ui: &mut egui::Ui, app: &SerialToolApp) {
     let (text, fill, ink) = if app.is_connected {
         (
@@ -260,22 +174,20 @@ fn status_chip(ui: &mut egui::Ui, app: &SerialToolApp) {
         });
 }
 
-fn metric_chip(ui: &mut egui::Ui, label: &str, value: String) {
-    egui::Frame::none()
-        .fill(SURFACE_SOFT)
-        .stroke(Stroke::new(1.0, LINE))
-        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(label).small().color(MUTED));
-                ui.label(RichText::new(value).strong().color(INK));
-            });
-        });
+fn metric_text(ui: &mut egui::Ui, label: &str, value: String) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(label).small().color(MUTED));
+        ui.label(RichText::new(value).color(MUTED));
+    });
 }
 
 fn labeled_column(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     ui.vertical(|ui| {
-        ui.label(RichText::new(label).small().color(MUTED));
+        if label.is_empty() {
+            ui.label(RichText::new("占位").small().color(Color32::TRANSPARENT));
+        } else {
+            ui.label(RichText::new(label).small().color(MUTED));
+        }
         add_contents(ui);
     });
 }

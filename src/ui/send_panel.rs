@@ -17,7 +17,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             ui.heading(RichText::new("发送区").color(INK));
 
             ui.add_space(10.0);
-            section_frame().show(ui, |ui| {
+            mode_toolbar_frame().show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("发送模式").small().color(MUTED));
                     for mode in DisplayMode::ALL {
@@ -203,5 +203,13 @@ fn section_frame() -> egui::Frame {
         .fill(Color32::from_rgb(255, 255, 255))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(10.0, 10.0))
+        .outer_margin(egui::Margin::same(0.0))
+}
+
+fn mode_toolbar_frame() -> egui::Frame {
+    egui::Frame::none()
+        .fill(Color32::from_rgb(244, 241, 236))
+        .stroke(Stroke::new(1.0, LINE))
+        .inner_margin(egui::Margin::symmetric(10.0, 8.0))
         .outer_margin(egui::Margin::same(0.0))
 }
