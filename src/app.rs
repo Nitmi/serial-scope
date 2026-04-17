@@ -292,8 +292,12 @@ impl SerialToolApp {
     pub fn export_plot_csv(&mut self) {
         let path = format!("{}_plot.csv", self.export_base_name.trim());
         let mut headers = vec!["x".to_owned()];
-        let visible = self.chart_state.visible_series_names();
-        headers.extend(visible.iter().cloned());
+        let visible = self.chart_state.visible_series_keys();
+        headers.extend(
+            visible
+                .iter()
+                .map(|name| self.chart_state.display_name(name)),
+        );
         let mut rows = vec![headers.join(",")];
         let max_len = self
             .chart_state
@@ -658,6 +662,9 @@ pub struct PlotState {
     last_filter_message: Option<String>,
     pub series: BTreeMap<String, VecDeque<[f64; 2]>>,
     pub visible: BTreeSet<String>,
+    display_names: BTreeMap<String, String>,
+    renaming_series_key: Option<String>,
+    renaming_series_name: String,
 }
 
 impl Default for PlotState {
@@ -675,6 +682,9 @@ impl Default for PlotState {
             last_filter_message: None,
             series: BTreeMap::new(),
             visible: BTreeSet::new(),
+            display_names: BTreeMap::new(),
+            renaming_series_key: None,
+            renaming_series_name: String::new(),
         }
     }
 }
@@ -784,6 +794,9 @@ impl PlotState {
 
     fn push_line(&mut self, parsed: ParsedLine, max_points: usize) {
         for (name, value) in parsed.values {
+            self.display_names
+                .entry(name.clone())
+                .or_insert_with(|| name.clone());
             let points = self.series.entry(name.clone()).or_default();
             self.visible.insert(name);
             points.push_back([self.next_index, value as f64]);
@@ -806,6 +819,9 @@ impl PlotState {
         self.next_index = 0.0;
         self.series.clear();
         self.visible.clear();
+        self.display_names.clear();
+        self.renaming_series_key = None;
+        self.renaming_series_name.clear();
     }
 
     pub fn toggle_pause(&mut self) {
@@ -870,6 +886,10 @@ impl PlotState {
     pub fn clear_series(&mut self, name: &str) {
         self.series.remove(name);
         self.visible.remove(name);
+        self.display_names.remove(name);
+        if self.renaming_series_key.as_deref() == Some(name) {
+            self.cancel_series_renaming();
+        }
     }
 
     pub fn schema_status_text(&self) -> String {
@@ -887,12 +907,53 @@ impl PlotState {
         "等待稳定的绘图数据格式（连续 3 条一致数据后开始绘图）".to_owned()
     }
 
-    pub fn visible_series_names(&self) -> Vec<String> {
+    pub fn visible_series_keys(&self) -> Vec<String> {
         self.series
             .keys()
             .filter(|name| self.visible.contains(*name))
             .cloned()
             .collect()
+    }
+
+    pub fn display_name(&self, key: &str) -> String {
+        self.display_names
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_owned())
+    }
+
+    pub fn start_series_renaming(&mut self, key: &str) {
+        self.renaming_series_key = Some(key.to_owned());
+        self.renaming_series_name = self.display_name(key);
+    }
+
+    pub fn is_renaming_series(&self, key: &str) -> bool {
+        self.renaming_series_key.as_deref() == Some(key)
+    }
+
+    pub fn renaming_series_name_mut(&mut self) -> Option<&mut String> {
+        self.renaming_series_key.as_ref()?;
+        Some(&mut self.renaming_series_name)
+    }
+
+    pub fn commit_series_renaming(&mut self) -> bool {
+        let Some(key) = self.renaming_series_key.clone() else {
+            return false;
+        };
+        let renamed = self.renaming_series_name.trim();
+        if renamed.is_empty() {
+            return false;
+        }
+
+        self.display_names.insert(key, renamed.to_owned());
+        self.renaming_series_key = None;
+        self.renaming_series_name.clear();
+        true
+    }
+
+    pub fn cancel_series_renaming(&mut self) {
+        self.renaming_series_key = None;
+        self.renaming_series_name.clear();
     }
 
     fn max_x(&self) -> Option<f64> {
@@ -913,7 +974,7 @@ impl PlotState {
                 continue;
             }
             if let Some(last) = values.back() {
-                parts.push(format!("{name}={:.3}", last[1]));
+                parts.push(format!("{}={:.3}", self.display_name(name), last[1]));
             }
         }
         if parts.is_empty() {
@@ -1031,7 +1092,7 @@ mod tests {
         assert!(state.series.is_empty());
 
         state.ingest(csv_line(3.0), 32);
-        assert_eq!(state.visible_series_names().len(), 2);
+        assert_eq!(state.visible_series_keys().len(), 2);
         assert_eq!(state.series["ch1"].len(), 3);
         assert!(state.schema_status_text().contains("当前主格式"));
     }
@@ -1111,6 +1172,21 @@ mod tests {
 
         state.resume_auto_follow();
         assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+    }
+
+    #[test]
+    fn series_display_name_can_be_renamed_without_changing_key() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(3.0), 32);
+        state.start_series_renaming("ch1");
+        *state.renaming_series_name_mut().unwrap() = "温度".to_owned();
+
+        assert!(state.commit_series_renaming());
+        assert_eq!(state.display_name("ch1"), "温度");
+        assert!(state.series.contains_key("ch1"));
     }
 
     #[test]

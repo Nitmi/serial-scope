@@ -110,14 +110,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                             }
                         }
 
-                        for name in app.chart_state.visible_series_names() {
-                            if let Some(values) = app.chart_state.series.get(&name) {
+                        for key in app.chart_state.visible_series_keys() {
+                            if let Some(values) = app.chart_state.series.get(&key) {
                                 let points =
                                     PlotPoints::from_iter(values.iter().map(|p| [p[0], p[1]]));
                                 plot_ui.line(
                                     Line::new(points)
-                                        .name(name.clone())
-                                        .color(series_color(&name)),
+                                        .name(app.chart_state.display_name(&key))
+                                        .color(series_color(&key)),
                                 );
                             }
                         }
@@ -254,7 +254,53 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                         5.0,
                                                         color,
                                                     );
-                                                    ui.label(RichText::new(name.clone()).strong());
+                                                    if app.chart_state.is_renaming_series(&name) {
+                                                        let mut commit = false;
+                                                        let mut cancel = false;
+
+                                                        if let Some(editing_name) =
+                                                            app.chart_state.renaming_series_name_mut()
+                                                        {
+                                                            let response = ui.add(
+                                                                egui::TextEdit::singleline(editing_name)
+                                                                    .desired_width(120.0),
+                                                            );
+                                                            commit = response.lost_focus()
+                                                                && ui.input(|input| {
+                                                                    input.key_pressed(egui::Key::Enter)
+                                                                });
+                                                            cancel = ui.input(|input| {
+                                                                input.key_pressed(egui::Key::Escape)
+                                                            });
+                                                        }
+
+                                                        if ui.small_button("确定").clicked() {
+                                                            commit = true;
+                                                        }
+                                                        if ui.small_button("取消").clicked() {
+                                                            cancel = true;
+                                                        }
+
+                                                        if commit {
+                                                            app.chart_state.commit_series_renaming();
+                                                        } else if cancel {
+                                                            app.chart_state.cancel_series_renaming();
+                                                        }
+                                                    } else {
+                                                        let label = ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(
+                                                                    app.chart_state.display_name(&name),
+                                                                )
+                                                                .strong()
+                                                                .underline(),
+                                                            )
+                                                            .sense(egui::Sense::click()),
+                                                        );
+                                                        if label.clicked() {
+                                                            app.chart_state.start_series_renaming(&name);
+                                                        }
+                                                    }
                                                 });
 
                                                 if ui.checkbox(&mut visible, "").changed() {
