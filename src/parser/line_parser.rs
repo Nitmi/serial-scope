@@ -63,14 +63,11 @@ pub fn parse_text_line_with_config(line: &str, config: &ParserConfig) -> Option<
     }
 
     match config.mode {
-        ParserMode::Auto => parse_key_value_line(trimmed).or_else(|| {
-            if trimmed.contains(config.csv_delimiter) {
-                parse_csv_numbers(trimmed, config)
-            } else {
-                None
-            }
-        }),
-        ParserMode::Csv => parse_csv_numbers(trimmed, config),
+        ParserMode::Auto => parse_key_value_line(trimmed)
+            .or_else(|| parse_csv_numbers(trimmed, config))
+            .or_else(|| parse_single_csv_number(trimmed, config)),
+        ParserMode::Csv => parse_csv_numbers(trimmed, config)
+            .or_else(|| parse_single_csv_number(trimmed, config)),
         ParserMode::KeyValue => parse_key_value_line(trimmed),
     }
 }
@@ -101,13 +98,7 @@ fn parse_key_value_line(line: &str) -> Option<ParsedLine> {
 
 fn parse_csv_numbers(line: &str, config: &ParserConfig) -> Option<ParsedLine> {
     let delimiter = config.csv_delimiter;
-    let custom_names = config
-        .csv_channel_names
-        .split(',')
-        .map(|item| item.trim())
-        .filter(|item| !item.is_empty())
-        .map(|item| item.to_owned())
-        .collect::<Vec<_>>();
+    let custom_names = custom_channel_names(config);
 
     let tokens = line
         .split(delimiter)
@@ -145,6 +136,30 @@ fn parse_csv_numbers(line: &str, config: &ParserConfig) -> Option<ParsedLine> {
             values,
         })
     }
+}
+
+fn parse_single_csv_number(line: &str, config: &ParserConfig) -> Option<ParsedLine> {
+    let value = parse_numeric_token(line)?;
+    let custom_names = custom_channel_names(config);
+    let name = custom_names
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "ch1".to_owned());
+
+    Some(ParsedLine {
+        schema: ParsedSchema::Csv { channels: 1 },
+        values: vec![(name, value)],
+    })
+}
+
+fn custom_channel_names(config: &ParserConfig) -> Vec<String> {
+    config
+        .csv_channel_names
+        .split(',')
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(|item| item.to_owned())
+        .collect::<Vec<_>>()
 }
 
 fn parse_numeric_token(token: &str) -> Option<f32> {
@@ -244,6 +259,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_single_csv_number() {
+        let parsed = parse_text_line_with_config("9.99", &parser_config()).unwrap();
+        assert_eq!(parsed.schema, ParsedSchema::Csv { channels: 1 });
+        assert_eq!(parsed.values, vec![("a".to_owned(), 9.99)]);
+    }
+
+    #[test]
+    fn parses_single_csv_number_with_unit() {
+        let parsed = parse_text_line_with_config("9.99V", &parser_config()).unwrap();
+        assert_eq!(parsed.schema, ParsedSchema::Csv { channels: 1 });
+        assert_eq!(parsed.values, vec![("a".to_owned(), 9.99)]);
+    }
+
+    #[test]
     fn parses_prefixed_csv_with_trailing_delimiter() {
         let parsed = parse_text_line_with_config("P, 1, 2, 3, 4,", &parser_config()).unwrap();
         assert_eq!(parsed.schema, ParsedSchema::Csv { channels: 4 });
@@ -279,6 +308,12 @@ mod tests {
     #[test]
     fn rejects_noise_after_numeric_csv_sequence() {
         let parsed = parse_text_line_with_config("1,2,debug,3", &parser_config());
+        assert!(parsed.is_none());
+    }
+
+    #[test]
+    fn rejects_plain_text_with_embedded_number_for_single_csv() {
+        let parsed = parse_text_line_with_config("debug value 9.99", &parser_config());
         assert!(parsed.is_none());
     }
 }

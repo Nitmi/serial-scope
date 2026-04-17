@@ -32,7 +32,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 }
                 ui.separator();
                 ui.label(
-                    RichText::new(format!("通道数: {}", app.chart_state.series.len())).strong(),
+                    RichText::new(format!("曲线数: {}", app.chart_state.series.len())).strong(),
                 );
                 ui.label(
                     RichText::new("支持 CSV 数字行与 key=value 数字行解析")
