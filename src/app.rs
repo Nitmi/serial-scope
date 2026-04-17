@@ -59,6 +59,8 @@ pub struct SerialToolApp {
     pub send_history: VecDeque<QuickCommandConfig>,
     pub receive_filter: String,
     pub highlight_keywords: String,
+    pub receive_follow_mode: ReceiveFollowMode,
+    pub pending_receive_count: usize,
     pub export_base_name: String,
     pub protocol_assistant: ProtocolAssistantConfig,
 }
@@ -104,6 +106,8 @@ impl SerialToolApp {
             send_history: VecDeque::new(),
             receive_filter,
             highlight_keywords,
+            receive_follow_mode: ReceiveFollowMode::Follow,
+            pending_receive_count: 0,
             export_base_name: format!("serial_log_{}", Local::now().format("%Y%m%d_%H%M%S")),
             protocol_assistant,
             config,
@@ -375,6 +379,8 @@ impl SerialToolApp {
                 self.is_connected = true;
                 self.pending_receive = None;
                 self.line_accumulator.clear();
+                self.receive_follow_mode = ReceiveFollowMode::Follow;
+                self.pending_receive_count = 0;
                 self.start_time = Instant::now();
                 self.last_rate_snapshot = Instant::now();
                 self.last_rx_snapshot = self.stats.rx_bytes;
@@ -386,6 +392,8 @@ impl SerialToolApp {
                 self.is_connected = false;
                 self.pending_receive = None;
                 self.line_accumulator.clear();
+                self.receive_follow_mode = ReceiveFollowMode::Follow;
+                self.pending_receive_count = 0;
                 self.auto_send_enabled = false;
                 self.next_auto_send_at = None;
                 self.status_text = format!("已断开: {reason}");
@@ -424,6 +432,9 @@ impl SerialToolApp {
     }
 
     fn store_receive_record(&mut self, record: ReceiveRecord) {
+        if self.receive_follow_mode == ReceiveFollowMode::Manual {
+            self.pending_receive_count = self.pending_receive_count.saturating_add(1);
+        }
         self.receive_lines.push_back(record);
         while self.receive_lines.len() > MAX_LOG_LINES {
             self.receive_lines.pop_front();
@@ -494,7 +505,42 @@ impl SerialToolApp {
         self.receive_lines.clear();
         self.pending_receive = None;
         self.line_accumulator.clear();
+        self.receive_follow_mode = ReceiveFollowMode::Follow;
+        self.pending_receive_count = 0;
         self.status_text = "接收区已清空".to_owned();
+    }
+
+    pub fn resume_receive_auto_follow(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Follow;
+        self.pending_receive_count = 0;
+    }
+
+    pub fn pause_receive_auto_follow(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Manual;
+    }
+
+    pub fn jump_receive_to_latest(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Recovering;
+        self.pending_receive_count = 0;
+    }
+
+    pub fn keep_receive_auto_follow_pending(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Recovering;
+    }
+
+    pub fn receive_is_following(&self) -> bool {
+        matches!(
+            self.receive_follow_mode,
+            ReceiveFollowMode::Follow | ReceiveFollowMode::Recovering
+        )
+    }
+
+    pub fn receive_is_manual(&self) -> bool {
+        self.receive_follow_mode == ReceiveFollowMode::Manual
+    }
+
+    pub fn receive_is_recovering(&self) -> bool {
+        self.receive_follow_mode == ReceiveFollowMode::Recovering
     }
 
     pub fn clear_plot(&mut self) {
@@ -586,10 +632,23 @@ pub enum MainView {
     Plot,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiveFollowMode {
+    Follow,
+    Manual,
+    Recovering,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlotFollowMode {
+    Follow,
+    Manual,
+}
+
 pub struct PlotState {
     next_index: f64,
     paused: bool,
-    pub auto_follow: bool,
+    pub follow_mode: PlotFollowMode,
     pub x_zoom: f64,
     pub y_zoom: f64,
     pub auto_sidebar_width: bool,
@@ -606,7 +665,7 @@ impl Default for PlotState {
         Self {
             next_index: 0.0,
             paused: false,
-            auto_follow: true,
+            follow_mode: PlotFollowMode::Follow,
             x_zoom: 1.0,
             y_zoom: 1.0,
             auto_sidebar_width: true,
@@ -740,6 +799,7 @@ impl PlotState {
         self.locked_schema = None;
         self.pending_schema = None;
         self.last_filter_message = None;
+        self.resume_auto_follow();
     }
 
     fn clear_series_data(&mut self) {
@@ -762,6 +822,22 @@ impl PlotState {
 
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn pause_auto_follow(&mut self) {
+        self.follow_mode = PlotFollowMode::Manual;
+    }
+
+    pub fn resume_auto_follow(&mut self) {
+        self.follow_mode = PlotFollowMode::Follow;
+    }
+
+    pub fn is_following(&self) -> bool {
+        self.follow_mode == PlotFollowMode::Follow
+    }
+
+    pub fn is_manual(&self) -> bool {
+        self.follow_mode == PlotFollowMode::Manual
     }
 
     pub fn x_bounds(&self) -> Option<(f64, f64)> {
@@ -926,7 +1002,8 @@ fn modbus_crc16(data: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::PlotState;
+    use super::{PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp};
+    use crate::config::AppConfig;
     use crate::parser::{ParsedLine, ParsedSchema};
 
     fn csv_line(index: f32) -> ParsedLine {
@@ -1022,5 +1099,52 @@ mod tests {
         state.reset_sidebar_width();
         assert!(state.auto_sidebar_width);
         assert_eq!(state.effective_sidebar_width(1_200.0), 312.0);
+    }
+
+    #[test]
+    fn plot_follow_mode_switches_between_follow_and_manual() {
+        let mut state = PlotState::default();
+
+        assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+        state.pause_auto_follow();
+        assert_eq!(state.follow_mode, PlotFollowMode::Manual);
+
+        state.resume_auto_follow();
+        assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+    }
+
+    #[test]
+    fn clearing_plot_restores_plot_follow_mode() {
+        let mut state = PlotState::default();
+
+        state.pause_auto_follow();
+        state.clear();
+
+        assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+    }
+
+    #[test]
+    fn receive_record_increments_pending_count_when_auto_follow_is_paused() {
+        let mut app = SerialToolApp::new(AppConfig::default());
+        app.pause_receive_auto_follow();
+
+        app.store_receive_record(ReceiveRecord {
+            timestamp: "12:00:00.000".to_owned(),
+            data: b"weight(g)=32.15".to_vec(),
+        });
+
+        assert_eq!(app.pending_receive_count, 1);
+    }
+
+    #[test]
+    fn resuming_receive_auto_follow_clears_pending_count() {
+        let mut app = SerialToolApp::new(AppConfig::default());
+        app.pause_receive_auto_follow();
+        app.pending_receive_count = 3;
+
+        app.resume_receive_auto_follow();
+
+        assert_eq!(app.receive_follow_mode, ReceiveFollowMode::Follow);
+        assert_eq!(app.pending_receive_count, 0);
     }
 }

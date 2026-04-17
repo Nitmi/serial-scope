@@ -5,16 +5,19 @@ use crate::app::{preview_text_line, MainView, SerialToolApp};
 
 const RESIZE_HANDLE_WIDTH: f32 = 12.0;
 const MIN_PLOT_WIDTH: f32 = 420.0;
+const INK: Color32 = Color32::from_rgb(48, 56, 66);
+const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
+const LINE: Color32 = Color32::from_rgb(216, 221, 229);
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     egui::Frame::group(ui.style())
         .fill(Color32::from_rgb(249, 247, 243))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(216, 221, 229)))
+        .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
             ui.set_min_height(260.0);
             ui.horizontal_wrapped(|ui| {
-                ui.heading(RichText::new("实时曲线").color(Color32::from_rgb(48, 56, 66)));
+                ui.heading(RichText::new("实时曲线").color(INK));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     view_switch(ui, app);
                 });
@@ -28,15 +31,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                     app.export_plot_csv();
                 }
                 ui.separator();
-                ui.checkbox(&mut app.chart_state.auto_follow, "自动定位");
-                ui.separator();
                 ui.label(
                     RichText::new(format!("通道数: {}", app.chart_state.series.len())).strong(),
                 );
                 ui.label(
                     RichText::new("支持 CSV 数字行与 key=value 数字行解析")
                         .italics()
-                        .color(Color32::from_rgb(108, 116, 126)),
+                        .color(MUTED),
                 );
             });
 
@@ -55,7 +56,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                     ui.label(
                         RichText::new(format!("最近文本行: {preview}"))
                             .small()
-                            .color(Color32::from_rgb(108, 116, 126)),
+                            .color(MUTED),
                     );
                 }
             }
@@ -87,8 +88,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                         .width(plot_width)
                         .height(plot_height);
 
-                    plot.show(ui, |plot_ui| {
-                        if app.chart_state.auto_follow {
+                    let anticipated_plot_rect = egui::Rect::from_min_size(
+                        ui.available_rect_before_wrap().min,
+                        vec2(plot_width, plot_height),
+                    );
+                    let user_requested_history = app.chart_state.is_following()
+                        && plot_history_navigation_requested(ui.ctx(), anticipated_plot_rect);
+                    if user_requested_history {
+                        app.chart_state.pause_auto_follow();
+                    }
+
+                    let plot_response = plot.show(ui, |plot_ui| {
+                        if app.chart_state.is_following() {
                             if let Some((min_x, max_x)) = app.chart_state.x_bounds() {
                                 let (min_y, max_y) =
                                     app.chart_state.y_bounds().unwrap_or((-1.0, 1.0));
@@ -111,6 +122,16 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                             }
                         }
                     });
+
+                    if plot_interaction_changed_bounds(ui.ctx(), &plot_response.response) {
+                        app.chart_state.pause_auto_follow();
+                    }
+
+                    if app.chart_state.is_manual()
+                        && show_plot_follow_resume_button(ui.ctx(), plot_response.response.rect)
+                    {
+                        app.chart_state.resume_auto_follow();
+                    }
                 });
 
                 let (handle_rect, handle_response) = ui.allocate_exact_size(
@@ -279,6 +300,76 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 );
             }
         });
+}
+
+fn plot_history_navigation_requested(ctx: &egui::Context, plot_rect: egui::Rect) -> bool {
+    let pointer_over_plot = ctx
+        .pointer_hover_pos()
+        .is_some_and(|pos| plot_rect.contains(pos));
+    pointer_over_plot
+        && ctx.input(|input| {
+            input.raw_scroll_delta.y.abs() > 0.0
+                || input.raw_scroll_delta.x.abs() > 0.0
+                || input.smooth_scroll_delta.y.abs() > 0.0
+                || input.smooth_scroll_delta.x.abs() > 0.0
+                || (input.pointer.primary_down() && input.pointer.delta().length_sq() > 0.0)
+        })
+}
+
+fn plot_interaction_changed_bounds(ctx: &egui::Context, response: &egui::Response) -> bool {
+    response.dragged()
+        || (response.hovered()
+            && ctx.input(|input| {
+                input.raw_scroll_delta.y.abs() > 0.0
+                    || input.raw_scroll_delta.x.abs() > 0.0
+                    || input.smooth_scroll_delta.y.abs() > 0.0
+                    || input.smooth_scroll_delta.x.abs() > 0.0
+            }))
+}
+
+fn show_plot_follow_resume_button(ctx: &egui::Context, anchor_rect: egui::Rect) -> bool {
+    let button_text = "回到最新视图";
+    let button_padding = egui::vec2(10.0, 5.0);
+    let font_id = egui::TextStyle::Button.resolve(&ctx.style());
+    let text_width = ctx.fonts(|fonts| {
+        fonts
+            .layout(
+                button_text.to_owned(),
+                font_id,
+                Color32::from_rgb(66, 112, 168),
+                f32::INFINITY,
+            )
+            .size()
+            .x
+    });
+    let estimated_width = (text_width + button_padding.x * 2.0).max(104.0);
+    let area_pos = egui::pos2(
+        anchor_rect.max.x - estimated_width - 8.0,
+        anchor_rect.max.y - 40.0,
+    );
+    let mut clicked = false;
+
+    egui::Area::new(egui::Id::new("plot_follow_resume_button"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(area_pos)
+        .show(ctx, |ui| {
+            ui.spacing_mut().button_padding = button_padding;
+            if ui
+                .add_sized(
+                    egui::vec2(estimated_width, 28.0),
+                    egui::Button::new(RichText::new(button_text).color(Color32::from_rgb(66, 112, 168)))
+                    .wrap_mode(egui::TextWrapMode::Extend)
+                    .fill(Color32::from_rgba_unmultiplied(241, 246, 252, 248))
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(188, 206, 228)))
+                    .min_size(egui::vec2(0.0, 28.0)),
+                )
+                .clicked()
+            {
+                clicked = true;
+            }
+        });
+
+    clicked
 }
 
 fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
