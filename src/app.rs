@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use chrono::Local;
 use crossbeam_channel::{Receiver, TryRecvError};
 use eframe::egui::{self, TextStyle};
+use egui_plot::PlotBounds;
 
 use crate::config::{
     AppConfig, AutoSendConfig, PlotLayoutConfig, ProtocolAssistantConfig, QuickCommandConfig,
@@ -655,6 +656,8 @@ pub struct PlotState {
     pub follow_mode: PlotFollowMode,
     pub x_zoom: f64,
     pub y_zoom: f64,
+    last_applied_x_zoom: f64,
+    last_applied_y_zoom: f64,
     pub auto_sidebar_width: bool,
     pub sidebar_width: f32,
     locked_schema: Option<ParsedSchema>,
@@ -675,6 +678,8 @@ impl Default for PlotState {
             follow_mode: PlotFollowMode::Follow,
             x_zoom: 1.0,
             y_zoom: 1.0,
+            last_applied_x_zoom: 1.0,
+            last_applied_y_zoom: 1.0,
             auto_sidebar_width: true,
             sidebar_width: 280.0,
             locked_schema: None,
@@ -846,6 +851,7 @@ impl PlotState {
 
     pub fn resume_auto_follow(&mut self) {
         self.follow_mode = PlotFollowMode::Follow;
+        self.sync_zoom_tracking();
     }
 
     pub fn is_following(&self) -> bool {
@@ -854,6 +860,48 @@ impl PlotState {
 
     pub fn is_manual(&self) -> bool {
         self.follow_mode == PlotFollowMode::Manual
+    }
+
+    pub fn sync_zoom_tracking(&mut self) {
+        self.last_applied_x_zoom = self.x_zoom.max(0.1);
+        self.last_applied_y_zoom = self.y_zoom.max(0.1);
+    }
+
+    pub fn manual_zoomed_bounds(&mut self, current_bounds: PlotBounds) -> Option<PlotBounds> {
+        let previous_x_zoom = self.last_applied_x_zoom.max(0.1);
+        let previous_y_zoom = self.last_applied_y_zoom.max(0.1);
+        let current_x_zoom = self.x_zoom.max(0.1);
+        let current_y_zoom = self.y_zoom.max(0.1);
+
+        let x_changed = (previous_x_zoom - current_x_zoom).abs() > f64::EPSILON;
+        let y_changed = (previous_y_zoom - current_y_zoom).abs() > f64::EPSILON;
+        if !x_changed && !y_changed {
+            return None;
+        }
+
+        let min = current_bounds.min();
+        let max = current_bounds.max();
+        let center_x = (min[0] + max[0]) * 0.5;
+        let center_y = (min[1] + max[1]) * 0.5;
+        let current_span_x = (max[0] - min[0]).abs().max(1e-6);
+        let current_span_y = (max[1] - min[1]).abs().max(1e-6);
+
+        let next_span_x = if x_changed {
+            (current_span_x * previous_x_zoom / current_x_zoom).max(1e-6)
+        } else {
+            current_span_x
+        };
+        let next_span_y = if y_changed {
+            (current_span_y * previous_y_zoom / current_y_zoom).max(1e-6)
+        } else {
+            current_span_y
+        };
+
+        self.sync_zoom_tracking();
+        Some(PlotBounds::from_min_max(
+            [center_x - next_span_x * 0.5, center_y - next_span_y * 0.5],
+            [center_x + next_span_x * 0.5, center_y + next_span_y * 0.5],
+        ))
     }
 
     pub fn x_bounds(&self) -> Option<(f64, f64)> {
@@ -1066,6 +1114,7 @@ mod tests {
     use super::{PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp};
     use crate::config::AppConfig;
     use crate::parser::{ParsedLine, ParsedSchema};
+    use egui_plot::PlotBounds;
 
     fn csv_line(index: f32) -> ParsedLine {
         ParsedLine {
@@ -1197,6 +1246,21 @@ mod tests {
         state.clear();
 
         assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+    }
+
+    #[test]
+    fn manual_zoomed_bounds_updates_current_view_without_follow_mode() {
+        let mut state = PlotState::default();
+        state.pause_auto_follow();
+        state.x_zoom = 2.0;
+
+        let bounds = state
+            .manual_zoomed_bounds(PlotBounds::from_min_max([0.0, 0.0], [100.0, 10.0]))
+            .unwrap();
+
+        assert_eq!(bounds.min(), [25.0, 0.0]);
+        assert_eq!(bounds.max(), [75.0, 10.0]);
+        assert_eq!(state.last_applied_x_zoom, 2.0);
     }
 
     #[test]

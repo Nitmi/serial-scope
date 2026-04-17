@@ -108,6 +108,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                     [max_x, max_y],
                                 ));
                             }
+                            app.chart_state.sync_zoom_tracking();
+                        } else if let Some(bounds) = app
+                            .chart_state
+                            .manual_zoomed_bounds(plot_ui.plot_bounds())
+                        {
+                            plot_ui.set_plot_bounds(bounds);
                         }
 
                         for key in app.chart_state.visible_series_keys() {
