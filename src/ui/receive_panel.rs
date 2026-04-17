@@ -21,14 +21,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 });
             });
 
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new("查看完整串口输出，支持过滤、时间戳和关键字高亮。")
-                        .small()
-                        .color(MUTED),
-                );
-            });
-
             ui.add_space(8.0);
             toolbar_row(ui, app);
 
@@ -69,8 +61,8 @@ fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         .inner_margin(egui::Margin::symmetric(6.0, 4.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
                 ui.selectable_value(&mut app.active_view, MainView::Plot, "数据绘图");
+                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
             });
         });
 }

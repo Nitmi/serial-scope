@@ -25,7 +25,6 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         metric_chip(ui, "RX", format!("{} B", app.stats.rx_bytes));
                         metric_chip(ui, "TX 速率", format!("{:.1} B/s", app.tx_rate_bps));
                         metric_chip(ui, "RX 速率", format!("{:.1} B/s", app.rx_rate_bps));
-                        metric_chip(ui, "运行时长", app.uptime_text());
                     });
 
                     ui.add_space(10.0);
@@ -73,7 +72,7 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                             });
 
                             ui.vertical(|ui| {
-                                ui.label(RichText::new("串口控制").small().color(MUTED));
+                                ui.add_space(18.0);
                                 ui.horizontal(|ui| {
                                     let connect_label = if app.is_connected {
                                         "关闭串口"
@@ -101,11 +100,6 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                         }
                                     }
                                 });
-                                ui.label(
-                                    RichText::new("串口列表会在未连接时自动刷新")
-                                        .small()
-                                        .color(MUTED),
-                                );
                             });
                         });
                     });

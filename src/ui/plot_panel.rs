@@ -288,8 +288,8 @@ fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         .inner_margin(egui::Margin::symmetric(6.0, 4.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
                 ui.selectable_value(&mut app.active_view, MainView::Plot, "数据绘图");
+                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
             });
         });
 }

@@ -15,11 +15,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
             ui.heading(RichText::new("发送区").color(INK));
-            ui.label(
-                RichText::new("准备主动发送的数据、协议辅助项和重复任务。")
-                    .small()
-                    .color(MUTED),
-            );
 
             ui.add_space(10.0);
             section_frame().show(ui, |ui| {

@@ -522,14 +522,6 @@ impl SerialToolApp {
             Err(err) => self.push_error(err.to_string()),
         }
     }
-
-    pub fn uptime_text(&self) -> String {
-        let seconds = self.start_time.elapsed().as_secs();
-        let hours = seconds / 3600;
-        let minutes = (seconds % 3600) / 60;
-        let secs = seconds % 60;
-        format!("{hours:02}:{minutes:02}:{secs:02}")
-    }
 }
 
 impl eframe::App for SerialToolApp {
