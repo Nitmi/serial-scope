@@ -42,7 +42,6 @@ pub struct SerialToolApp {
     pub stats: TransferStats,
     pub is_connected: bool,
     last_refresh: Instant,
-    baud_rate_input: String,
     pub active_view: MainView,
     pub start_time: Instant,
     pub rx_rate_bps: f64,
@@ -68,7 +67,6 @@ impl SerialToolApp {
     pub fn new(config: AppConfig) -> Self {
         let serial_manager = SerialManager::start();
         let serial_events = serial_manager.subscribe();
-        let baud_rate_input = config.serial.baud_rate.to_string();
         let quick_commands = config.quick_commands.clone();
         let auto_send = config.auto_send.clone();
         let protocol_assistant = config.protocol_assistant.clone();
@@ -89,7 +87,6 @@ impl SerialToolApp {
             stats: TransferStats::default(),
             is_connected: false,
             last_refresh: Instant::now() - Duration::from_secs(1),
-            baud_rate_input,
             active_view: MainView::Monitor,
             start_time: Instant::now(),
             rx_rate_bps: 0.0,
@@ -507,20 +504,6 @@ impl SerialToolApp {
         self.last_error = Some(message.clone());
         self.status_text = message;
     }
-
-    pub fn baud_rate_input(&mut self) -> &mut String {
-        &mut self.baud_rate_input
-    }
-
-    pub fn apply_baud_rate_input(&mut self) {
-        match validate_baud_rate(&self.baud_rate_input) {
-            Ok(baud) => {
-                self.config.serial.baud_rate = baud;
-                self.persist_config();
-            }
-            Err(err) => self.push_error(err.to_string()),
-        }
-    }
 }
 
 impl eframe::App for SerialToolApp {
@@ -890,17 +873,6 @@ pub fn preview_text_line(bytes: &[u8]) -> Option<String> {
 
 pub fn mono_text_style() -> TextStyle {
     TextStyle::Monospace
-}
-
-pub fn validate_baud_rate(text: &str) -> Result<u32> {
-    let trimmed = text.trim();
-    let baud = trimmed
-        .parse::<u32>()
-        .map_err(|_| anyhow!("波特率必须为正整数"))?;
-    if baud == 0 {
-        return Err(anyhow!("波特率必须大于 0"));
-    }
-    Ok(baud)
 }
 
 pub fn build_tx_payload(
