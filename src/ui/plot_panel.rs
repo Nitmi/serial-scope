@@ -164,20 +164,24 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                         vec2(RESIZE_HANDLE_WIDTH, plot_height),
                         egui::Sense::click_and_drag(),
                     );
-                    let handle_color = if handle_response.dragged() || handle_response.hovered() {
-                        Color32::from_rgb(120, 172, 255)
+                    let handle_color = if handle_response.dragged() {
+                        Color32::from_rgb(118, 150, 196)
+                    } else if handle_response.hovered() {
+                        Color32::from_rgb(176, 186, 202)
                     } else {
-                        Color32::from_rgb(68, 74, 86)
+                        Color32::from_rgb(214, 220, 228)
                     };
                     ui.painter().line_segment(
                         [
-                            handle_rect.center_top() + vec2(0.0, 16.0),
-                            handle_rect.center_bottom() - vec2(0.0, 16.0),
+                            handle_rect.center_top() + vec2(0.0, 20.0),
+                            handle_rect.center_bottom() - vec2(0.0, 20.0),
                         ],
-                        Stroke::new(2.0, handle_color),
+                        Stroke::new(if handle_response.dragged() { 2.0 } else { 1.0 }, handle_color),
                     );
-                    ui.painter()
-                        .circle_filled(handle_rect.center(), 4.0, handle_color);
+                    if handle_response.hovered() || handle_response.dragged() {
+                        ui.painter()
+                            .circle_filled(handle_rect.center(), 3.0, handle_color);
+                    }
 
                     if handle_response.dragged() {
                         let drag_delta_x = ui.input(|input| input.pointer.delta().x);
@@ -194,25 +198,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                         |ui| {
                         ui.horizontal(|ui| {
                             ui.heading("曲线面板");
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let reset_button = ui.add_enabled(
-                                    !app.chart_state.auto_sidebar_width,
-                                    egui::Button::new("重置布局"),
-                                );
-                                if reset_button.clicked() {
-                                    app.chart_state.reset_sidebar_width();
-                                    app.persist_config();
-                                }
-                                ui.label(
-                                        RichText::new(if app.chart_state.auto_sidebar_width {
-                                            "自动宽度"
-                                        } else {
-                                            "手动宽度"
-                                        })
-                                    .small()
-                                    .color(Color32::from_rgb(140, 148, 160)),
-                                );
-                            });
                         });
                         ui.label(
                             RichText::new("拖动中间分隔线可调整宽度，X/Y 缩放互相独立。").small(),

@@ -759,6 +759,7 @@ impl PlotState {
         self.sidebar_width = width.clamp(260.0, 420.0);
     }
 
+    #[cfg(test)]
     pub fn reset_sidebar_width(&mut self) {
         self.auto_sidebar_width = true;
     }
