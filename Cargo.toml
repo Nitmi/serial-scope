@@ -17,6 +17,7 @@ serialport = "4"
 toml = "0.8"
 fontdb = "0.16"
 image = { version = "0.25", default-features = false, features = ["png"] }
+rfd = "0.15"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

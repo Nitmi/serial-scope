@@ -90,7 +90,7 @@ fn load_system_cjk_font() -> Option<(String, FontData)> {
             let face = db.face(id)?;
             if let Some(font_bytes) = db.with_face_data(id, |data, _| data.to_vec()) {
                 let name = format!("system-font-{}", face.post_script_name.clone());
-                return Some((name, FontData::from_owned(font_bytes).into()));
+                return Some((name, FontData::from_owned(font_bytes)));
             }
         }
     }
@@ -105,7 +105,7 @@ fn load_system_cjk_font() -> Option<(String, FontData)> {
         let face = db.face(id)?;
         if let Some(font_bytes) = db.with_face_data(id, |data, _| data.to_vec()) {
             let name = format!("system-font-{}", face.post_script_name.clone());
-            return Some((name, FontData::from_owned(font_bytes).into()));
+            return Some((name, FontData::from_owned(font_bytes)));
         }
     }
 
@@ -113,16 +113,46 @@ fn load_system_cjk_font() -> Option<(String, FontData)> {
 }
 
 fn configure_theme(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::dark();
-    visuals.override_text_color = Some(egui::Color32::from_rgb(225, 229, 235));
-    visuals.widgets.active.bg_fill = egui::Color32::from_rgb(45, 95, 155);
-    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(52, 110, 178);
-    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(36, 40, 48);
-    visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(24, 27, 33);
-    visuals.panel_fill = egui::Color32::from_rgb(18, 21, 26);
-    visuals.extreme_bg_color = egui::Color32::from_rgb(12, 15, 20);
-    visuals.window_fill = egui::Color32::from_rgb(20, 24, 30);
+    let ink = egui::Color32::from_rgb(47, 55, 65);
+    let muted = egui::Color32::from_rgb(95, 110, 126);
+    let accent = egui::Color32::from_rgb(84, 136, 202);
+    let accent_soft = egui::Color32::from_rgb(219, 235, 250);
+    let line = egui::Color32::from_rgb(205, 216, 229);
+
+    let mut visuals = egui::Visuals::light();
+    visuals.override_text_color = Some(ink);
+    visuals.hyperlink_color = accent;
+    visuals.selection.bg_fill = accent_soft;
+    visuals.selection.stroke = egui::Stroke::new(1.0, accent);
+    visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(244, 248, 253);
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, line);
+    visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, muted);
+    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(250, 252, 255);
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, line);
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
+    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(236, 245, 252);
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, accent);
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ink);
+    visuals.widgets.active.bg_fill = accent;
+    visuals.widgets.active.bg_stroke =
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(72, 116, 172));
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
+    visuals.faint_bg_color = egui::Color32::from_rgb(236, 242, 248);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(255, 255, 255);
+    visuals.code_bg_color = egui::Color32::from_rgb(248, 250, 253);
+    visuals.panel_fill = egui::Color32::from_rgb(244, 248, 253);
+    visuals.window_fill = egui::Color32::from_rgb(245, 249, 254);
+    visuals.window_stroke = egui::Stroke::new(1.0, line);
+    visuals.warn_fg_color = egui::Color32::from_rgb(184, 120, 46);
+    visuals.error_fg_color = egui::Color32::from_rgb(196, 92, 92);
     ctx.set_visuals(visuals);
+
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+    style.spacing.button_padding = egui::vec2(12.0, 8.0);
+    style.spacing.indent = 18.0;
+    style.spacing.combo_width = 140.0;
+    ctx.set_style(style);
 }
 
 fn load_app_icon() -> Option<egui::IconData> {

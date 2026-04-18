@@ -1,25 +1,29 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use crossbeam_channel::{Receiver, TryRecvError};
-use eframe::egui::{self, RichText, TextStyle};
+use eframe::egui::{self, TextStyle};
+use egui_plot::PlotBounds;
+use rfd::FileDialog;
 
 use crate::config::{
-    AppConfig, AutoSendConfig, ProtocolAssistantConfig, QuickCommandConfig,
+    AppConfig, AutoSendConfig, PlotLayoutConfig, ProtocolAssistantConfig, QuickCommandConfig,
 };
-use crate::parser::{LineAccumulator, ParsedLine};
+use crate::parser::{LineAccumulator, ParsedLine, ParsedSchema};
 use crate::serial::{
-    available_port_names, bytes_to_ascii_display, bytes_to_hex_display, build_port_options,
+    available_port_names, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
     DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialSettings,
 };
-use crate::ui::{plot_panel, receive_panel, send_panel, top_bar};
+use crate::ui::{panel_shell, plot_panel, receive_panel, send_panel, top_bar};
 
 const MAX_LOG_LINES: usize = 1_000;
 const MAX_PLOT_POINTS: usize = 2_000;
 const GUI_REFRESH_MS: u64 = 30;
+const PORT_REFRESH_MS: u64 = 1_500;
 const MAX_LINE_PREVIEW_CHARS: usize = 120;
 const MAX_SEND_HISTORY: usize = 20;
 
@@ -35,13 +39,12 @@ pub struct SerialToolApp {
     pub show_timestamps: bool,
     pub send_input: String,
     pub receive_lines: VecDeque<ReceiveRecord>,
-    pending_receive: Option<ReceiveRecord>,
+    pending_receive: Option<Vec<u8>>,
     line_accumulator: LineAccumulator,
     pub chart_state: PlotState,
     pub stats: TransferStats,
     pub is_connected: bool,
     last_refresh: Instant,
-    baud_rate_input: String,
     pub active_view: MainView,
     pub start_time: Instant,
     pub rx_rate_bps: f64,
@@ -59,6 +62,8 @@ pub struct SerialToolApp {
     pub send_history: VecDeque<QuickCommandConfig>,
     pub receive_filter: String,
     pub highlight_keywords: String,
+    pub receive_follow_mode: ReceiveFollowMode,
+    pub pending_receive_count: usize,
     pub export_base_name: String,
     pub protocol_assistant: ProtocolAssistantConfig,
 }
@@ -67,7 +72,6 @@ impl SerialToolApp {
     pub fn new(config: AppConfig) -> Self {
         let serial_manager = SerialManager::start();
         let serial_events = serial_manager.subscribe();
-        let baud_rate_input = config.serial.baud_rate.to_string();
         let quick_commands = config.quick_commands.clone();
         let auto_send = config.auto_send.clone();
         let protocol_assistant = config.protocol_assistant.clone();
@@ -84,11 +88,10 @@ impl SerialToolApp {
             receive_lines: VecDeque::new(),
             pending_receive: None,
             line_accumulator: LineAccumulator::default(),
-            chart_state: PlotState::default(),
+            chart_state: PlotState::from_config(&config.plot_layout),
             stats: TransferStats::default(),
             is_connected: false,
             last_refresh: Instant::now() - Duration::from_secs(1),
-            baud_rate_input,
             active_view: MainView::Monitor,
             start_time: Instant::now(),
             rx_rate_bps: 0.0,
@@ -106,6 +109,8 @@ impl SerialToolApp {
             send_history: VecDeque::new(),
             receive_filter,
             highlight_keywords,
+            receive_follow_mode: ReceiveFollowMode::Follow,
+            pending_receive_count: 0,
             export_base_name: format!("serial_log_{}", Local::now().format("%Y%m%d_%H%M%S")),
             protocol_assistant,
             config,
@@ -119,15 +124,22 @@ impl SerialToolApp {
     pub fn refresh_ports(&mut self) {
         match available_port_names() {
             Ok(ports) => {
+                let ports_changed = self.port_names != ports;
                 self.port_names = ports;
+
+                let mut selection_changed = false;
                 if self.port_names.is_empty() {
                     self.status_text = "未发现串口设备".to_owned();
-                } else if self.config.serial.port_name.is_empty() {
+                } else if self.config.serial.port_name.is_empty()
+                    || !self.port_names.contains(&self.config.serial.port_name)
+                {
                     self.config.serial.port_name = self.port_names[0].clone();
-                } else if !self.port_names.contains(&self.config.serial.port_name) {
-                    self.config.serial.port_name = self.port_names[0].clone();
+                    selection_changed = true;
                 }
-                self.persist_config();
+
+                if ports_changed || selection_changed {
+                    self.persist_config();
+                }
             }
             Err(err) => self.push_error(format!("刷新串口失败: {err}")),
         }
@@ -146,6 +158,10 @@ impl SerialToolApp {
         self.config.protocol_assistant = self.protocol_assistant.clone();
         self.config.receive_filter = self.receive_filter.clone();
         self.config.highlight_keywords = self.highlight_keywords.clone();
+        self.config.plot_layout = PlotLayoutConfig {
+            auto_sidebar_width: self.chart_state.auto_sidebar_width,
+            sidebar_width: self.chart_state.sidebar_width,
+        };
         if let Err(err) = self.config.save() {
             self.last_error = Some(format!("保存配置失败: {err}"));
         }
@@ -158,8 +174,13 @@ impl SerialToolApp {
             return;
         }
 
+        self.last_error = None;
+        self.status_text = format!("正在打开: {port_name}");
         let settings = SerialSettings::from(self.config.serial.clone());
-        self.serial_manager.send(GuiToSerialMessage::Open { port_name, settings });
+        self.serial_manager.send(GuiToSerialMessage::Open {
+            port_name,
+            settings,
+        });
     }
 
     pub fn close_port(&mut self) {
@@ -197,7 +218,10 @@ impl SerialToolApp {
         let payload_len = payload.len();
         self.stats.tx_bytes += payload_len as u64;
         self.serial_manager.send(GuiToSerialMessage::Send(payload));
-        self.status_text = format!("本次发送 {} 字节，累计 TX {} 字节", payload_len, self.stats.tx_bytes);
+        self.status_text = format!(
+            "本次发送 {} 字节，累计 TX {} 字节",
+            payload_len, self.stats.tx_bytes
+        );
 
         let history_item = QuickCommandConfig {
             name: format!("{} {}", mode.label(), Local::now().format("%H:%M:%S")),
@@ -252,10 +276,17 @@ impl SerialToolApp {
     }
 
     pub fn export_receive_log(&mut self) {
-        let path = format!("{}_receive.txt", self.export_base_name.trim());
+        let default_name = format!("{}_receive.txt", self.export_base_name.trim());
+        let Some(path) = FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("文本日志", &["txt", "log"])
+            .save_file()
+        else {
+            return;
+        };
         let mut text = String::new();
         for record in &self.receive_lines {
-            let content = display_receive_data(self.receive_mode, &record.data);
+            let content = receive_display_text(self.receive_mode, &record.data);
             if self.show_timestamps {
                 text.push_str(&format!("[{}] {}\n", record.timestamp, content));
             } else {
@@ -263,16 +294,30 @@ impl SerialToolApp {
             }
         }
         match fs::write(&path, text) {
-            Ok(_) => self.status_text = format!("接收日志已导出到 {path}"),
+            Ok(_) => {
+                self.sync_export_base_name(&path, "_receive");
+                self.status_text = format!("接收日志已导出到 {}", path.display());
+            }
             Err(err) => self.push_error(format!("导出接收日志失败: {err}")),
         }
     }
 
     pub fn export_plot_csv(&mut self) {
-        let path = format!("{}_plot.csv", self.export_base_name.trim());
+        let default_name = format!("{}_plot.csv", self.export_base_name.trim());
+        let Some(path) = FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("CSV 文件", &["csv"])
+            .save_file()
+        else {
+            return;
+        };
         let mut headers = vec!["x".to_owned()];
-        let visible = self.chart_state.visible_series_names();
-        headers.extend(visible.iter().cloned());
+        let visible = self.chart_state.visible_series_keys();
+        headers.extend(
+            visible
+                .iter()
+                .map(|name| self.chart_state.display_name(name)),
+        );
         let mut rows = vec![headers.join(",")];
         let max_len = self
             .chart_state
@@ -309,9 +354,24 @@ impl SerialToolApp {
         }
 
         match fs::write(&path, rows.join("\n")) {
-            Ok(_) => self.status_text = format!("曲线数据已导出到 {path}"),
+            Ok(_) => {
+                self.sync_export_base_name(&path, "_plot");
+                self.status_text = format!("曲线数据已导出到 {}", path.display());
+            }
             Err(err) => self.push_error(format!("导出曲线失败: {err}")),
         }
+    }
+
+    fn sync_export_base_name(&mut self, path: &Path, suffix: &str) {
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            return;
+        };
+
+        self.export_base_name = stem
+            .strip_suffix(suffix)
+            .unwrap_or(stem)
+            .trim()
+            .to_owned();
     }
 
     pub fn filtered_receive_records(&self) -> Vec<&ReceiveRecord> {
@@ -323,7 +383,7 @@ impl SerialToolApp {
         self.receive_lines
             .iter()
             .filter(|record| {
-                display_receive_data(self.receive_mode, &record.data)
+                receive_display_text(self.receive_mode, &record.data)
                     .to_lowercase()
                     .contains(&needle)
             })
@@ -356,6 +416,10 @@ impl SerialToolApp {
         match event {
             SerialEvent::Connected(name) => {
                 self.is_connected = true;
+                self.pending_receive = None;
+                self.line_accumulator.clear();
+                self.receive_follow_mode = ReceiveFollowMode::Follow;
+                self.pending_receive_count = 0;
                 self.start_time = Instant::now();
                 self.last_rate_snapshot = Instant::now();
                 self.last_rx_snapshot = self.stats.rx_bytes;
@@ -365,43 +429,51 @@ impl SerialToolApp {
             }
             SerialEvent::Disconnected(reason) => {
                 self.is_connected = false;
+                self.pending_receive = None;
+                self.line_accumulator.clear();
+                self.receive_follow_mode = ReceiveFollowMode::Follow;
+                self.pending_receive_count = 0;
                 self.auto_send_enabled = false;
                 self.next_auto_send_at = None;
                 self.status_text = format!("已断开: {reason}");
+                self.refresh_ports();
             }
             SerialEvent::Status(text) => self.status_text = text,
             SerialEvent::Error(text) => self.push_error(text),
             SerialEvent::DataReceived(bytes) => {
                 self.stats.rx_bytes += bytes.len() as u64;
                 self.push_receive_record(bytes.clone());
-                let parsed = self.line_accumulator.push_bytes(&bytes, &self.config.parser);
+                let parsed = self
+                    .line_accumulator
+                    .push_bytes(&bytes, &self.config.parser);
                 self.consume_parsed_lines(parsed);
             }
         }
     }
 
     fn push_receive_record(&mut self, bytes: Vec<u8>) {
-        let timestamp = Local::now().format("%H:%M:%S%.3f").to_string();
+        let mut buffer = self.pending_receive.take().unwrap_or_default();
+        buffer.extend_from_slice(&bytes);
 
-        if let Some(mut pending) = self.pending_receive.take() {
-            pending.data.extend_from_slice(&bytes);
-            if ends_with_line_break(&pending.data) {
-                self.store_receive_record(pending);
-            } else {
-                self.pending_receive = Some(pending);
+        while let Some((line, consumed)) = take_complete_line(&buffer) {
+            if !line.is_empty() {
+                self.store_receive_record(ReceiveRecord {
+                    timestamp: Local::now().format("%H:%M:%S%.3f").to_string(),
+                    data: line,
+                });
             }
-            return;
+            buffer.drain(..consumed);
         }
 
-        let record = ReceiveRecord { timestamp, data: bytes };
-        if ends_with_line_break(&record.data) {
-            self.store_receive_record(record);
-        } else {
-            self.pending_receive = Some(record);
+        if !buffer.is_empty() {
+            self.pending_receive = Some(buffer);
         }
     }
 
     fn store_receive_record(&mut self, record: ReceiveRecord) {
+        if self.receive_follow_mode == ReceiveFollowMode::Manual {
+            self.pending_receive_count = self.pending_receive_count.saturating_add(1);
+        }
         self.receive_lines.push_back(record);
         while self.receive_lines.len() > MAX_LOG_LINES {
             self.receive_lines.pop_front();
@@ -413,7 +485,7 @@ impl SerialToolApp {
             return;
         }
         for parsed in parsed_lines {
-            self.chart_state.push(parsed, MAX_PLOT_POINTS);
+            self.chart_state.ingest(parsed, MAX_PLOT_POINTS);
         }
     }
 
@@ -428,7 +500,10 @@ impl SerialToolApp {
         }
 
         let now = Instant::now();
-        if self.next_auto_send_at.is_some_and(|deadline| now >= deadline) {
+        if self
+            .next_auto_send_at
+            .is_some_and(|deadline| now >= deadline)
+        {
             let input = self.send_input.clone();
             let mode = self.send_mode;
             if let Err(err) = self.send_payload(mode, &input, false) {
@@ -438,11 +513,14 @@ impl SerialToolApp {
                 return;
             }
             self.auto_send_counter = self.auto_send_counter.saturating_add(1);
-            if self.auto_send_repeat_limit > 0 && self.auto_send_counter >= self.auto_send_repeat_limit {
+            if self.auto_send_repeat_limit > 0
+                && self.auto_send_counter >= self.auto_send_repeat_limit
+            {
                 self.auto_send_enabled = false;
                 self.next_auto_send_at = None;
             } else {
-                self.next_auto_send_at = Some(now + Duration::from_millis(self.auto_send_interval_ms.max(50)));
+                self.next_auto_send_at =
+                    Some(now + Duration::from_millis(self.auto_send_interval_ms.max(50)));
             }
         }
     }
@@ -453,8 +531,10 @@ impl SerialToolApp {
         if elapsed < 0.5 {
             return;
         }
-        self.rx_rate_bps = (self.stats.rx_bytes.saturating_sub(self.last_rx_snapshot)) as f64 / elapsed;
-        self.tx_rate_bps = (self.stats.tx_bytes.saturating_sub(self.last_tx_snapshot)) as f64 / elapsed;
+        self.rx_rate_bps =
+            (self.stats.rx_bytes.saturating_sub(self.last_rx_snapshot)) as f64 / elapsed;
+        self.tx_rate_bps =
+            (self.stats.tx_bytes.saturating_sub(self.last_tx_snapshot)) as f64 / elapsed;
         self.last_rate_snapshot = now;
         self.last_rx_snapshot = self.stats.rx_bytes;
         self.last_tx_snapshot = self.stats.tx_bytes;
@@ -464,7 +544,42 @@ impl SerialToolApp {
         self.receive_lines.clear();
         self.pending_receive = None;
         self.line_accumulator.clear();
+        self.receive_follow_mode = ReceiveFollowMode::Follow;
+        self.pending_receive_count = 0;
         self.status_text = "接收区已清空".to_owned();
+    }
+
+    pub fn resume_receive_auto_follow(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Follow;
+        self.pending_receive_count = 0;
+    }
+
+    pub fn pause_receive_auto_follow(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Manual;
+    }
+
+    pub fn jump_receive_to_latest(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Recovering;
+        self.pending_receive_count = 0;
+    }
+
+    pub fn keep_receive_auto_follow_pending(&mut self) {
+        self.receive_follow_mode = ReceiveFollowMode::Recovering;
+    }
+
+    pub fn receive_is_following(&self) -> bool {
+        matches!(
+            self.receive_follow_mode,
+            ReceiveFollowMode::Follow | ReceiveFollowMode::Recovering
+        )
+    }
+
+    pub fn receive_is_manual(&self) -> bool {
+        self.receive_follow_mode == ReceiveFollowMode::Manual
+    }
+
+    pub fn receive_is_recovering(&self) -> bool {
+        self.receive_follow_mode == ReceiveFollowMode::Recovering
     }
 
     pub fn clear_plot(&mut self) {
@@ -476,37 +591,6 @@ impl SerialToolApp {
         self.last_error = Some(message.clone());
         self.status_text = message;
     }
-
-    pub fn baud_rate_input(&mut self) -> &mut String {
-        &mut self.baud_rate_input
-    }
-
-    pub fn apply_baud_rate_input(&mut self) {
-        match validate_baud_rate(&self.baud_rate_input) {
-            Ok(baud) => {
-                self.config.serial.baud_rate = baud;
-                self.persist_config();
-            }
-            Err(err) => self.push_error(err.to_string()),
-        }
-    }
-
-    pub fn connection_rich_text(&self) -> RichText {
-        let (label, color) = if self.is_connected {
-            ("已连接", egui::Color32::from_rgb(78, 201, 140))
-        } else {
-            ("未连接", egui::Color32::from_rgb(224, 93, 93))
-        };
-        RichText::new(label).strong().color(color)
-    }
-
-    pub fn uptime_text(&self) -> String {
-        let seconds = self.start_time.elapsed().as_secs();
-        let hours = seconds / 3600;
-        let minutes = (seconds % 3600) / 60;
-        let secs = seconds % 60;
-        format!("{hours:02}:{minutes:02}:{secs:02}")
-    }
 }
 
 impl eframe::App for SerialToolApp {
@@ -515,7 +599,9 @@ impl eframe::App for SerialToolApp {
         self.handle_auto_send();
         self.update_transfer_rates();
 
-        if self.last_refresh.elapsed() >= Duration::from_millis(800) {
+        if !self.is_connected
+            && self.last_refresh.elapsed() >= Duration::from_millis(PORT_REFRESH_MS)
+        {
             self.refresh_ports();
             self.last_refresh = Instant::now();
         }
@@ -524,22 +610,38 @@ impl eframe::App for SerialToolApp {
 
         egui::SidePanel::right("send_panel")
             .resizable(true)
-            .default_width(360.0)
+            .default_width(372.0)
+            .min_width(320.0)
             .show(ctx, |ui| {
-                send_panel::show(ui, self);
+                const SEND_PANEL_TOP_OFFSET: f32 = 6.0;
+                const SEND_PANEL_HEIGHT_TRIM: f32 = 6.0;
+                let available_height = ui.available_height();
+                ui.add_space(SEND_PANEL_TOP_OFFSET);
+                let panel_height = (available_height
+                    - panel_shell::MAIN_PANEL_ALIGNMENT_TRIM
+                    - SEND_PANEL_TOP_OFFSET)
+                    - SEND_PANEL_HEIGHT_TRIM
+                    .max(0.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), panel_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        send_panel::show(ui, self);
+                    },
+                );
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_view, MainView::Monitor, "串口监视");
-                ui.selectable_value(&mut self.active_view, MainView::Plot, "数据绘图");
-            });
-            ui.add_space(8.0);
-
-            match self.active_view {
-                MainView::Monitor => receive_panel::show(ui, self),
-                MainView::Plot => plot_panel::show(ui, self),
-            }
+            let panel_height =
+                (ui.available_height() - panel_shell::MAIN_PANEL_ALIGNMENT_TRIM).max(0.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), panel_height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| match self.active_view {
+                    MainView::Monitor => receive_panel::show(ui, self),
+                    MainView::Plot => plot_panel::show(ui, self),
+                },
+            );
         });
 
         ctx.request_repaint_after(Duration::from_millis(GUI_REFRESH_MS));
@@ -557,8 +659,18 @@ pub struct ReceiveRecord {
     pub data: Vec<u8>,
 }
 
-fn ends_with_line_break(bytes: &[u8]) -> bool {
-    bytes.ends_with(b"\n") || bytes.ends_with(b"\r")
+fn take_complete_line(buffer: &[u8]) -> Option<(Vec<u8>, usize)> {
+    for (index, byte) in buffer.iter().enumerate() {
+        if *byte == b'\n' || *byte == b'\r' {
+            let consumed = if *byte == b'\r' && buffer.get(index + 1) == Some(&b'\n') {
+                index + 2
+            } else {
+                index + 1
+            };
+            return Some((buffer[..index].to_vec(), consumed));
+        }
+    }
+    None
 }
 
 #[derive(Default)]
@@ -573,15 +685,37 @@ pub enum MainView {
     Plot,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiveFollowMode {
+    Follow,
+    Manual,
+    Recovering,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlotFollowMode {
+    Follow,
+    Manual,
+}
+
 pub struct PlotState {
     next_index: f64,
     paused: bool,
-    pub auto_follow: bool,
+    pub follow_mode: PlotFollowMode,
     pub x_zoom: f64,
     pub y_zoom: f64,
+    last_applied_x_zoom: f64,
+    last_applied_y_zoom: f64,
+    pub auto_sidebar_width: bool,
     pub sidebar_width: f32,
+    locked_schema: Option<ParsedSchema>,
+    pending_schema: Option<PendingSchema>,
+    last_filter_message: Option<String>,
     pub series: BTreeMap<String, VecDeque<[f64; 2]>>,
     pub visible: BTreeSet<String>,
+    display_names: BTreeMap<String, String>,
+    renaming_series_key: Option<String>,
+    renaming_series_name: String,
 }
 
 impl Default for PlotState {
@@ -589,19 +723,134 @@ impl Default for PlotState {
         Self {
             next_index: 0.0,
             paused: false,
-            auto_follow: true,
+            follow_mode: PlotFollowMode::Follow,
             x_zoom: 1.0,
             y_zoom: 1.0,
+            last_applied_x_zoom: 1.0,
+            last_applied_y_zoom: 1.0,
+            auto_sidebar_width: true,
             sidebar_width: 280.0,
+            locked_schema: None,
+            pending_schema: None,
+            last_filter_message: None,
             series: BTreeMap::new(),
             visible: BTreeSet::new(),
+            display_names: BTreeMap::new(),
+            renaming_series_key: None,
+            renaming_series_name: String::new(),
         }
     }
 }
 
+struct PendingSchema {
+    schema: ParsedSchema,
+    lines: Vec<ParsedLine>,
+}
+
 impl PlotState {
-    pub fn push(&mut self, parsed: ParsedLine, max_points: usize) {
+    pub fn from_config(config: &PlotLayoutConfig) -> Self {
+        Self {
+            auto_sidebar_width: config.auto_sidebar_width,
+            sidebar_width: config.sidebar_width.clamp(260.0, 420.0),
+            ..Self::default()
+        }
+    }
+
+    pub fn effective_sidebar_width(&self, available_width: f32) -> f32 {
+        let auto_width = (available_width * 0.26).clamp(260.0, 420.0);
+        if self.auto_sidebar_width {
+            auto_width
+        } else {
+            self.sidebar_width.clamp(260.0, 420.0)
+        }
+    }
+
+    pub fn set_manual_sidebar_width(&mut self, width: f32) {
+        self.auto_sidebar_width = false;
+        self.sidebar_width = width.clamp(260.0, 420.0);
+    }
+
+    #[cfg(test)]
+    pub fn reset_sidebar_width(&mut self) {
+        self.auto_sidebar_width = true;
+    }
+
+    pub fn ingest(&mut self, parsed: ParsedLine, max_points: usize) {
+        if self.locked_schema.as_ref() == Some(&parsed.schema) {
+            self.pending_schema = None;
+            self.push_line(parsed, max_points);
+            return;
+        }
+
+        let schema_label = parsed.schema.label();
+        let pending = self.pending_schema.take();
+
+        if self.locked_schema.is_some() {
+            let mut pending = match pending {
+                Some(mut pending) if pending.schema == parsed.schema => {
+                    pending.lines.push(parsed);
+                    pending
+                }
+                _ => PendingSchema {
+                    schema: parsed.schema.clone(),
+                    lines: vec![parsed],
+                },
+            };
+
+            if pending.lines.len() >= 3 {
+                let lines = pending.lines.drain(..).collect::<Vec<_>>();
+                let new_schema = pending.schema.clone();
+                self.clear_series_data();
+                self.locked_schema = Some(new_schema.clone());
+                self.last_filter_message = Some(format!(
+                    "检测到新的稳定格式，已切换到 {}",
+                    new_schema.label()
+                ));
+                for line in lines {
+                    self.push_line(line, max_points);
+                }
+            } else {
+                self.pending_schema = Some(pending);
+                self.last_filter_message =
+                    Some(format!("已过滤不匹配数据，候选格式: {schema_label}"));
+            }
+            return;
+        }
+
+        let mut pending = match pending {
+            Some(mut pending) if pending.schema == parsed.schema => {
+                pending.lines.push(parsed);
+                pending
+            }
+            _ => PendingSchema {
+                schema: parsed.schema.clone(),
+                lines: vec![parsed],
+            },
+        };
+
+        if pending.lines.len() >= 3 {
+            let lines = pending.lines.drain(..).collect::<Vec<_>>();
+            let locked = pending.schema.clone();
+            self.locked_schema = Some(locked.clone());
+            self.last_filter_message = Some(format!("已锁定绘图格式: {}", locked.label()));
+            for line in lines {
+                self.push_line(line, max_points);
+            }
+        } else {
+            self.last_filter_message = Some(format!(
+                "正在识别主格式: {} ({}/3)",
+                schema_label,
+                pending.lines.len()
+            ));
+            self.pending_schema = Some(pending);
+        }
+    }
+
+    fn push_line(&mut self, parsed: ParsedLine, max_points: usize) {
         for (name, value) in parsed.values {
+            self.display_names
+                .entry(name.clone())
+                .or_insert_with(|| name.clone());
             let points = self.series.entry(name.clone()).or_default();
             self.visible.insert(name);
             points.push_back([self.next_index, value as f64]);
@@ -613,9 +862,20 @@ impl PlotState {
     }
 
     pub fn clear(&mut self) {
+        self.clear_series_data();
+        self.locked_schema = None;
+        self.pending_schema = None;
+        self.last_filter_message = None;
+        self.resume_auto_follow();
+    }
+
+    fn clear_series_data(&mut self) {
         self.next_index = 0.0;
         self.series.clear();
         self.visible.clear();
+        self.display_names.clear();
+        self.renaming_series_key = None;
+        self.renaming_series_name.clear();
     }
 
     pub fn toggle_pause(&mut self) {
@@ -623,11 +883,74 @@ impl PlotState {
     }
 
     pub fn paused_label(&self) -> &'static str {
-        if self.paused { "恢复绘图" } else { "暂停绘图" }
+        if self.paused {
+            "恢复绘图"
+        } else {
+            "暂停绘图"
+        }
     }
 
     pub fn is_paused(&self) -> bool {
         self.paused
+    }
+
+    pub fn pause_auto_follow(&mut self) {
+        self.follow_mode = PlotFollowMode::Manual;
+    }
+
+    pub fn resume_auto_follow(&mut self) {
+        self.follow_mode = PlotFollowMode::Follow;
+        self.sync_zoom_tracking();
+    }
+
+    pub fn is_following(&self) -> bool {
+        self.follow_mode == PlotFollowMode::Follow
+    }
+
+    pub fn is_manual(&self) -> bool {
+        self.follow_mode == PlotFollowMode::Manual
+    }
+
+    pub fn sync_zoom_tracking(&mut self) {
+        self.last_applied_x_zoom = self.x_zoom.max(0.1);
+        self.last_applied_y_zoom = self.y_zoom.max(0.1);
+    }
+
+    pub fn manual_zoomed_bounds(&mut self, current_bounds: PlotBounds) -> Option<PlotBounds> {
+        let previous_x_zoom = self.last_applied_x_zoom.max(0.1);
+        let previous_y_zoom = self.last_applied_y_zoom.max(0.1);
+        let current_x_zoom = self.x_zoom.max(0.1);
+        let current_y_zoom = self.y_zoom.max(0.1);
+
+        let x_changed = (previous_x_zoom - current_x_zoom).abs() > f64::EPSILON;
+        let y_changed = (previous_y_zoom - current_y_zoom).abs() > f64::EPSILON;
+        if !x_changed && !y_changed {
+            return None;
+        }
+
+        let min = current_bounds.min();
+        let max = current_bounds.max();
+        let center_x = (min[0] + max[0]) * 0.5;
+        let center_y = (min[1] + max[1]) * 0.5;
+        let current_span_x = (max[0] - min[0]).abs().max(1e-6);
+        let current_span_y = (max[1] - min[1]).abs().max(1e-6);
+
+        let next_span_x = if x_changed {
+            (current_span_x * previous_x_zoom / current_x_zoom).max(1e-6)
+        } else {
+            current_span_x
+        };
+        let next_span_y = if y_changed {
+            (current_span_y * previous_y_zoom / current_y_zoom).max(1e-6)
+        } else {
+            current_span_y
+        };
+
+        self.sync_zoom_tracking();
+        Some(PlotBounds::from_min_max(
+            [center_x - next_span_x * 0.5, center_y - next_span_y * 0.5],
+            [center_x + next_span_x * 0.5, center_y + next_span_y * 0.5],
+        ))
     }
 
     pub fn x_bounds(&self) -> Option<(f64, f64)> {
@@ -657,18 +980,77 @@ impl PlotState {
         Some((center - span * 0.6, center + span * 0.6))
     }
 
-
     pub fn clear_series(&mut self, name: &str) {
         self.series.remove(name);
         self.visible.remove(name);
+        self.display_names.remove(name);
+        if self.renaming_series_key.as_deref() == Some(name) {
+            self.cancel_series_renaming();
+        }
     }
 
-    pub fn visible_series_names(&self) -> Vec<String> {
+    pub fn schema_status_text(&self) -> String {
+        if let Some(message) = &self.last_filter_message {
+            if let Some(locked) = &self.locked_schema {
+                return format!("{} | 当前主格式: {}", message, locked.label());
+            }
+            return message.clone();
+        }
+
+        if let Some(locked) = &self.locked_schema {
+            return format!("当前主格式: {}", locked.label());
+        }
+
+        "等待稳定的绘图数据格式（连续 3 条一致数据后开始绘图）".to_owned()
+    }
+
+    pub fn visible_series_keys(&self) -> Vec<String> {
         self.series
             .keys()
             .filter(|name| self.visible.contains(*name))
             .cloned()
             .collect()
+    }
+
+    pub fn display_name(&self, key: &str) -> String {
+        self.display_names
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| key.to_owned())
+    }
+
+    pub fn start_series_renaming(&mut self, key: &str) {
+        self.renaming_series_key = Some(key.to_owned());
+        self.renaming_series_name = self.display_name(key);
+    }
+
+    pub fn is_renaming_series(&self, key: &str) -> bool {
+        self.renaming_series_key.as_deref() == Some(key)
+    }
+
+    pub fn renaming_series_name_mut(&mut self) -> Option<&mut String> {
+        self.renaming_series_key.as_ref()?;
+        Some(&mut self.renaming_series_name)
+    }
+
+    pub fn commit_series_renaming(&mut self) -> bool {
+        let Some(key) = self.renaming_series_key.clone() else {
+            return false;
+        };
+        let renamed = self.renaming_series_name.trim();
+        if renamed.is_empty() {
+            return false;
+        }
+
+        self.display_names.insert(key, renamed.to_owned());
+        self.renaming_series_key = None;
+        self.renaming_series_name.clear();
+        true
+    }
+
+    pub fn cancel_series_renaming(&mut self) {
+        self.renaming_series_key = None;
+        self.renaming_series_name.clear();
     }
 
     fn max_x(&self) -> Option<f64> {
@@ -689,7 +1071,7 @@ impl PlotState {
                 continue;
             }
             if let Some(last) = values.back() {
-                parts.push(format!("{name}={:.3}", last[1]));
+                parts.push(format!("{}={:.3}", self.display_name(name), last[1]));
             }
         }
         if parts.is_empty() {
@@ -707,12 +1089,24 @@ pub fn display_receive_data(mode: DisplayMode, bytes: &[u8]) -> String {
     }
 }
 
+pub fn receive_display_text(mode: DisplayMode, bytes: &[u8]) -> String {
+    display_receive_data(mode, bytes)
+        .trim_end_matches(['\r', '\n'])
+        .to_owned()
+}
+
 pub fn preview_text_line(bytes: &[u8]) -> Option<String> {
     let text = String::from_utf8_lossy(bytes);
     let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let line = normalized.lines().find(|line| !line.trim().is_empty())?.trim();
+    let line = normalized
+        .lines()
+        .find(|line| !line.trim().is_empty())?
+        .trim();
     let preview = if line.chars().count() > MAX_LINE_PREVIEW_CHARS {
-        let mut shortened = line.chars().take(MAX_LINE_PREVIEW_CHARS).collect::<String>();
+        let mut shortened = line
+            .chars()
+            .take(MAX_LINE_PREVIEW_CHARS)
+            .collect::<String>();
         shortened.push_str("...");
         shortened
     } else {
@@ -723,17 +1117,6 @@ pub fn preview_text_line(bytes: &[u8]) -> Option<String> {
 
 pub fn mono_text_style() -> TextStyle {
     TextStyle::Monospace
-}
-
-pub fn validate_baud_rate(text: &str) -> Result<u32> {
-    let trimmed = text.trim();
-    let baud = trimmed
-        .parse::<u32>()
-        .map_err(|_| anyhow!("波特率必须为正整数"))?;
-    if baud == 0 {
-        return Err(anyhow!("波特率必须大于 0"));
-    }
-    Ok(baud)
 }
 
 pub fn build_tx_payload(
@@ -773,4 +1156,184 @@ fn modbus_crc16(data: &[u8]) -> u16 {
         }
     }
     crc
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp};
+    use crate::config::AppConfig;
+    use crate::parser::{ParsedLine, ParsedSchema};
+    use egui_plot::PlotBounds;
+
+    fn csv_line(index: f32) -> ParsedLine {
+        ParsedLine {
+            schema: ParsedSchema::Csv { channels: 2 },
+            values: vec![("ch1".to_owned(), index), ("ch2".to_owned(), index + 10.0)],
+        }
+    }
+
+    fn kv_line(value: f32) -> ParsedLine {
+        ParsedLine {
+            schema: ParsedSchema::KeyValue {
+                keys: vec!["hum".to_owned(), "temp".to_owned()],
+            },
+            values: vec![("hum".to_owned(), value), ("temp".to_owned(), value + 1.0)],
+        }
+    }
+
+    #[test]
+    fn locks_schema_after_three_matching_lines() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        assert!(state.series.is_empty());
+
+        state.ingest(csv_line(3.0), 32);
+        assert_eq!(state.visible_series_keys().len(), 2);
+        assert_eq!(state.series["ch1"].len(), 3);
+        assert!(state.schema_status_text().contains("当前主格式"));
+    }
+
+    #[test]
+    fn drops_single_mismatched_line_after_lock() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(3.0), 32);
+        state.ingest(kv_line(50.0), 32);
+
+        assert_eq!(state.series["ch1"].len(), 3);
+        assert!(!state.series.contains_key("hum"));
+        assert!(state.schema_status_text().contains("已过滤不匹配数据"));
+    }
+
+    #[test]
+    fn switches_schema_after_three_consecutive_new_lines() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(3.0), 32);
+        state.ingest(kv_line(50.0), 32);
+        state.ingest(kv_line(51.0), 32);
+        state.ingest(kv_line(52.0), 32);
+
+        assert!(!state.series.contains_key("ch1"));
+        assert_eq!(state.series["hum"].len(), 3);
+        assert!(state.schema_status_text().contains("已切换到"));
+    }
+
+    #[test]
+    fn clear_resets_locked_schema_and_candidates() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.clear();
+
+        assert!(state.series.is_empty());
+        assert!(state
+            .schema_status_text()
+            .contains("等待稳定的绘图数据格式"));
+    }
+
+    #[test]
+    fn auto_sidebar_width_stays_within_expected_range() {
+        let state = PlotState::default();
+
+        assert_eq!(state.effective_sidebar_width(800.0), 260.0);
+        assert_eq!(state.effective_sidebar_width(1_800.0), 420.0);
+    }
+
+    #[test]
+    fn manual_sidebar_width_can_override_and_reset() {
+        let mut state = PlotState::default();
+
+        state.set_manual_sidebar_width(390.0);
+        assert!(!state.auto_sidebar_width);
+        assert_eq!(state.effective_sidebar_width(1_200.0), 390.0);
+
+        state.reset_sidebar_width();
+        assert!(state.auto_sidebar_width);
+        assert_eq!(state.effective_sidebar_width(1_200.0), 312.0);
+    }
+
+    #[test]
+    fn plot_follow_mode_switches_between_follow_and_manual() {
+        let mut state = PlotState::default();
+
+        assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+        state.pause_auto_follow();
+        assert_eq!(state.follow_mode, PlotFollowMode::Manual);
+
+        state.resume_auto_follow();
+        assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+    }
+
+    #[test]
+    fn series_display_name_can_be_renamed_without_changing_key() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 32);
+        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(3.0), 32);
+        state.start_series_renaming("ch1");
+        *state.renaming_series_name_mut().unwrap() = "温度".to_owned();
+
+        assert!(state.commit_series_renaming());
+        assert_eq!(state.display_name("ch1"), "温度");
+        assert!(state.series.contains_key("ch1"));
+    }
+
+    #[test]
+    fn clearing_plot_restores_plot_follow_mode() {
+        let mut state = PlotState::default();
+
+        state.pause_auto_follow();
+        state.clear();
+
+        assert_eq!(state.follow_mode, PlotFollowMode::Follow);
+    }
+
+    #[test]
+    fn manual_zoomed_bounds_updates_current_view_without_follow_mode() {
+        let mut state = PlotState::default();
+        state.pause_auto_follow();
+        state.x_zoom = 2.0;
+
+        let bounds = state
+            .manual_zoomed_bounds(PlotBounds::from_min_max([0.0, 0.0], [100.0, 10.0]))
+            .unwrap();
+
+        assert_eq!(bounds.min(), [25.0, 0.0]);
+        assert_eq!(bounds.max(), [75.0, 10.0]);
+        assert_eq!(state.last_applied_x_zoom, 2.0);
+    }
+
+    #[test]
+    fn receive_record_increments_pending_count_when_auto_follow_is_paused() {
+        let mut app = SerialToolApp::new(AppConfig::default());
+        app.pause_receive_auto_follow();
+
+        app.store_receive_record(ReceiveRecord {
+            timestamp: "12:00:00.000".to_owned(),
+            data: b"weight(g)=32.15".to_vec(),
+        });
+
+        assert_eq!(app.pending_receive_count, 1);
+    }
+
+    #[test]
+    fn resuming_receive_auto_follow_clears_pending_count() {
+        let mut app = SerialToolApp::new(AppConfig::default());
+        app.pause_receive_auto_follow();
+        app.pending_receive_count = 3;
+
+        app.resume_receive_auto_follow();
+
+        assert_eq!(app.receive_follow_mode, ReceiveFollowMode::Follow);
+        assert_eq!(app.pending_receive_count, 0);
+    }
 }
