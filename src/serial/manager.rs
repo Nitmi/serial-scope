@@ -60,7 +60,9 @@ fn serial_worker(cmd_rx: Receiver<GuiToSerialMessage>, evt_tx: Sender<SerialEven
                             let _ = evt_tx.send(SerialEvent::Connected(port_name));
                         }
                         Err(err) => {
-                            let _ = evt_tx.send(SerialEvent::Error(format!("打开串口失败: {err}")));
+                            let _ = evt_tx.send(SerialEvent::Error(friendly_open_port_error(
+                                &port_name, &err,
+                            )));
                         }
                     }
                 }
@@ -124,4 +126,66 @@ fn open_port(
         .timeout(Duration::from_millis(20))
         .open()?;
     Ok(port)
+}
+
+fn friendly_open_port_error(port_name: &str, err: &anyhow::Error) -> String {
+    let raw = err.to_string();
+    let lower = raw.to_lowercase();
+
+    let reason = if lower.contains("拒绝访问")
+        || lower.contains("access is denied")
+        || lower.contains("permission denied")
+        || lower.contains("resource busy")
+        || lower.contains("device or resource busy")
+        || lower.contains("used by another process")
+        || lower.contains("被占用")
+    {
+        "串口当前正被其他程序占用，请关闭占用程序后重试。".to_owned()
+    } else if lower.contains("系统找不到指定的文件")
+        || lower.contains("找不到指定的文件")
+        || lower.contains("no such file")
+        || lower.contains("not found")
+    {
+        "串口当前不可用。"
+            .to_owned()
+    } else if lower.contains("invalid parameter")
+        || lower.contains("参数错误")
+        || lower.contains("invalid input")
+    {
+        "串口参数无效，请检查波特率和高级串口参数设置。".to_owned()
+    } else {
+        format!("请检查设备连接和串口参数。({raw})")
+    };
+
+    format!("打开串口失败: {port_name}，{reason}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::friendly_open_port_error;
+
+    #[test]
+    fn maps_not_found_open_error_to_friendly_message() {
+        let err = anyhow::anyhow!("系统找不到指定的文件。");
+        let message = friendly_open_port_error("COM27", &err);
+        assert!(message.contains("打开串口失败: COM27"));
+        assert!(message.contains("串口当前不可用"));
+        assert!(!message.contains("系统找不到指定的文件"));
+    }
+
+    #[test]
+    fn maps_access_denied_open_error_to_busy_message() {
+        let err = anyhow::anyhow!("拒绝访问。");
+        let message = friendly_open_port_error("COM27", &err);
+        assert!(message.contains("打开串口失败: COM27"));
+        assert!(message.contains("其他程序占用"));
+    }
+
+    #[test]
+    fn keeps_fallback_detail_for_unknown_open_error() {
+        let err = anyhow::anyhow!("mystery failure");
+        let message = friendly_open_port_error("COM27", &err);
+        assert!(message.contains("请检查设备连接和串口参数"));
+        assert!(message.contains("mystery failure"));
+    }
 }
