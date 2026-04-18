@@ -13,8 +13,50 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libgl1-mesa-dev \
+            libasound2-dev \
+            pkg-config
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features --locked
+
   build:
     name: Build ${{ matrix.os }}
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -22,12 +64,13 @@ jobs:
         include:
           - os: windows-latest
             artifact_name: serial-scope-windows-x86_64
-            binary_path: target/release/serial-scope.exe
-            package_path: dist/serial-scope-windows-x86_64.zip
+            package_path: dist/serial-scope-windows-x86_64.exe
           - os: ubuntu-latest
             artifact_name: serial-scope-linux-x86_64
-            binary_path: target/release/serial-scope
             package_path: dist/serial-scope-linux-x86_64.tar.gz
+          - os: macos-latest
+            artifact_name: serial-scope-macos
+            package_path: dist/serial-scope-macos.app.zip
 
     steps:
       - name: Checkout
@@ -57,16 +100,20 @@ jobs:
             pkg-config
 
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Package Windows bundle
         if: runner.os == 'Windows'
         shell: cmd
-        run: packaging\windows\package-windows.bat ${{ github.ref_name }}
+        run: packaging\windows\package-windows.bat
 
       - name: Package Linux bundle
         if: runner.os == 'Linux'
-        run: bash packaging/linux/package-linux.sh ${{ github.ref_name }}
+        run: bash packaging/linux/package-linux.sh
+
+      - name: Package macOS app bundle
+        if: runner.os == 'macOS'
+        run: bash packaging/macos/package-macos.sh
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -75,15 +122,44 @@ jobs:
           path: ${{ matrix.package_path }}
           if-no-files-found: error
 
+      - name: Extract changelog entry
+        if: startsWith(github.ref, 'refs/tags/')
+        id: changelog
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"^## \[{re.escape(version)}\] - .*$\n(.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+          match = pattern.search(text)
+          if not match:
+              raise SystemExit(
+                  f"CHANGELOG.md 中未找到版本 [{version}]，请先补充对应条目后再发布。"
+              )
+
+          body = match.group(1).strip()
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as fh:
+              fh.write("body<<EOF\n")
+              fh.write(body + "\n")
+              fh.write("EOF\n")
+          PY
+
       - name: Upload release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.package_path }}
           fail_on_unmatched_files: true
-          generate_release_notes: true
-          append_body: true
-          body: |
-            Automated release build for `${{ github.ref_name }}`.
+          generate_release_notes: false
+          append_body: false
+          body: ${{ steps.changelog.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
