@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
@@ -7,6 +8,7 @@ use chrono::Local;
 use crossbeam_channel::{Receiver, TryRecvError};
 use eframe::egui::{self, TextStyle};
 use egui_plot::PlotBounds;
+use rfd::FileDialog;
 
 use crate::config::{
     AppConfig, AutoSendConfig, PlotLayoutConfig, ProtocolAssistantConfig, QuickCommandConfig,
@@ -274,7 +276,14 @@ impl SerialToolApp {
     }
 
     pub fn export_receive_log(&mut self) {
-        let path = format!("{}_receive.txt", self.export_base_name.trim());
+        let default_name = format!("{}_receive.txt", self.export_base_name.trim());
+        let Some(path) = FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("文本日志", &["txt", "log"])
+            .save_file()
+        else {
+            return;
+        };
         let mut text = String::new();
         for record in &self.receive_lines {
             let content = receive_display_text(self.receive_mode, &record.data);
@@ -285,13 +294,23 @@ impl SerialToolApp {
             }
         }
         match fs::write(&path, text) {
-            Ok(_) => self.status_text = format!("接收日志已导出到 {path}"),
+            Ok(_) => {
+                self.sync_export_base_name(&path, "_receive");
+                self.status_text = format!("接收日志已导出到 {}", path.display());
+            }
             Err(err) => self.push_error(format!("导出接收日志失败: {err}")),
         }
     }
 
     pub fn export_plot_csv(&mut self) {
-        let path = format!("{}_plot.csv", self.export_base_name.trim());
+        let default_name = format!("{}_plot.csv", self.export_base_name.trim());
+        let Some(path) = FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter("CSV 文件", &["csv"])
+            .save_file()
+        else {
+            return;
+        };
         let mut headers = vec!["x".to_owned()];
         let visible = self.chart_state.visible_series_keys();
         headers.extend(
@@ -335,9 +354,24 @@ impl SerialToolApp {
         }
 
         match fs::write(&path, rows.join("\n")) {
-            Ok(_) => self.status_text = format!("曲线数据已导出到 {path}"),
+            Ok(_) => {
+                self.sync_export_base_name(&path, "_plot");
+                self.status_text = format!("曲线数据已导出到 {}", path.display());
+            }
             Err(err) => self.push_error(format!("导出曲线失败: {err}")),
         }
+    }
+
+    fn sync_export_base_name(&mut self, path: &Path, suffix: &str) {
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            return;
+        };
+
+        self.export_base_name = stem
+            .strip_suffix(suffix)
+            .unwrap_or(stem)
+            .trim()
+            .to_owned();
     }
 
     pub fn filtered_receive_records(&self) -> Vec<&ReceiveRecord> {
