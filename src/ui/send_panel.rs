@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, RichText, Stroke};
 
+use super::panel_shell;
 use crate::app::SerialToolApp;
 use crate::serial::DisplayMode;
 
@@ -7,19 +8,10 @@ const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
 const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
 const LINE: Color32 = Color32::from_rgb(208, 218, 230);
+const SOFT_RADIUS: f32 = 9.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
-    let panel_bottom_gap = 6.0;
-    let frame_vertical_padding = 24.0;
-    let panel_content_height =
-        (ui.available_height() - panel_bottom_gap - frame_vertical_padding).max(0.0);
-    egui::Frame::group(ui.style())
-        .fill(Color32::from_rgb(255, 255, 255))
-        .stroke(Stroke::new(1.0, LINE))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-        .outer_margin(egui::Margin::symmetric(0.0, 2.0))
-        .show(ui, |ui| {
-            ui.set_min_height(panel_content_height);
+    panel_shell::show_main_panel(ui, |ui| {
             ui.heading(RichText::new("发送区").color(INK));
 
             ui.add_space(10.0);
@@ -201,22 +193,21 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                     .small()
                     .color(MUTED),
             );
-        });
-    ui.add_space(panel_bottom_gap);
+    });
 }
 
 fn section_frame() -> egui::Frame {
     egui::Frame::none()
         .fill(Color32::from_rgb(252, 253, 255))
         .stroke(Stroke::new(1.0, LINE))
+        .rounding(egui::Rounding::same(SOFT_RADIUS))
         .inner_margin(egui::Margin::symmetric(10.0, 10.0))
-        .outer_margin(egui::Margin::same(0.0))
 }
 
 fn mode_toolbar_frame() -> egui::Frame {
     egui::Frame::none()
         .fill(Color32::from_rgb(240, 246, 252))
         .stroke(Stroke::new(1.0, LINE))
+        .rounding(egui::Rounding::same(SOFT_RADIUS))
         .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-        .outer_margin(egui::Margin::same(0.0))
 }

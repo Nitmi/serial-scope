@@ -8,6 +8,9 @@ const MUTED: Color32 = Color32::from_rgb(108, 116, 126);
 const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
 const SURFACE: Color32 = Color32::from_rgb(255, 255, 255);
 const LINE: Color32 = Color32::from_rgb(208, 218, 230);
+const CARD_RADIUS: f32 = 12.0;
+const SOFT_RADIUS: f32 = 9.0;
+const CHIP_RADIUS: f32 = 10.0;
 const COMMON_BAUD_RATES: [u32; 11] = [
     1_200, 2_400, 4_800, 9_600, 19_200, 38_400, 57_600, 115_200, 230_400, 460_800, 921_600,
 ];
@@ -167,6 +170,7 @@ fn primary_band() -> egui::Frame {
     egui::Frame::none()
         .fill(SURFACE)
         .stroke(Stroke::new(1.0, LINE))
+        .rounding(egui::Rounding::same(CARD_RADIUS))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .outer_margin(egui::Margin::symmetric(0.0, 2.0))
 }
@@ -175,6 +179,7 @@ fn error_card(ui: &mut egui::Ui, error: &str) {
     egui::Frame::none()
         .fill(Color32::from_rgb(249, 232, 232))
         .stroke(Stroke::new(1.0, Color32::from_rgb(235, 198, 198)))
+        .rounding(egui::Rounding::same(SOFT_RADIUS))
         .inner_margin(egui::Margin::symmetric(12.0, 10.0))
         .show(ui, |ui| {
             ui.label(RichText::new(error).color(Color32::from_rgb(184, 82, 82)));
@@ -194,8 +199,12 @@ fn centered_action_button(
         fill
     };
 
-    ui.painter()
-        .rect(rect, egui::Rounding::same(4.0), final_fill, Stroke::NONE);
+    ui.painter().rect(
+        rect,
+        egui::Rounding::same(SOFT_RADIUS),
+        final_fill,
+        Stroke::NONE,
+    );
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -225,6 +234,7 @@ fn status_chip(ui: &mut egui::Ui, app: &SerialToolApp) {
     egui::Frame::none()
         .fill(fill)
         .stroke(Stroke::new(1.0, Color32::TRANSPARENT))
+        .rounding(egui::Rounding::same(CHIP_RADIUS))
         .inner_margin(egui::Margin::symmetric(10.0, 6.0))
         .show(ui, |ui| {
             ui.label(RichText::new(text).strong().color(ink));

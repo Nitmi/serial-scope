@@ -1,202 +1,188 @@
 use eframe::egui::{self, vec2, Color32, RichText, Slider, Stroke};
 use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
+use super::panel_shell;
 use crate::app::{preview_text_line, MainView, SerialToolApp};
 
 const RESIZE_HANDLE_WIDTH: f32 = 12.0;
-const CONTENT_EDGE_SAFETY: f32 = 2.0;
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
-const LINE: Color32 = Color32::from_rgb(208, 218, 230);
+const SOFT_RADIUS: f32 = 9.0;
+const SEGMENT_OUTER_RADIUS: f32 = 18.0;
+const SEGMENT_INNER_RADIUS: f32 = 13.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
-    let frame_vertical_padding = 24.0;
-    let panel_content_height = (ui.available_height() - frame_vertical_padding).max(0.0);
-    egui::Frame::group(ui.style())
-        .fill(Color32::from_rgb(255, 255, 255))
-        .stroke(Stroke::new(1.0, LINE))
-        .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-        .outer_margin(egui::Margin::symmetric(0.0, 2.0))
-        .show(ui, |ui| {
-            ui.set_height(panel_content_height);
-            ui.horizontal_wrapped(|ui| {
-                ui.heading(RichText::new("实时曲线").color(INK));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    view_switch(ui, app);
-                });
-                if ui.button(app.chart_state.paused_label()).clicked() {
-                    app.chart_state.toggle_pause();
-                }
-                if ui.button("清空全部").clicked() {
-                    app.clear_plot();
-                }
-                if ui.button("导出 CSV").clicked() {
-                    app.export_plot_csv();
-                }
-                ui.separator();
+    panel_shell::show_main_panel(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.heading(RichText::new("实时曲线").color(INK));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                view_switch(ui, app);
+            });
+            if ui.button(app.chart_state.paused_label()).clicked() {
+                app.chart_state.toggle_pause();
+            }
+            if ui.button("清空全部").clicked() {
+                app.clear_plot();
+            }
+            if ui.button("导出 CSV").clicked() {
+                app.export_plot_csv();
+            }
+            ui.separator();
+            ui.label(
+                RichText::new(format!("曲线数: {}", app.chart_state.series.len())).strong(),
+            );
+            ui.label(
+                RichText::new("支持 CSV 数字行与 key=value 数字行解析")
+                    .italics()
+                    .color(MUTED),
+            );
+        });
+
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(app.chart_state.latest_points_summary())
+                .color(Color32::from_rgb(120, 172, 255)),
+        );
+        ui.label(
+            RichText::new(app.chart_state.schema_status_text())
+                .small()
+                .color(Color32::from_rgb(255, 196, 120)),
+        );
+        if let Some(record) = app.receive_lines.back() {
+            if let Some(preview) = preview_text_line(&record.data) {
                 ui.label(
-                    RichText::new(format!("曲线数: {}", app.chart_state.series.len())).strong(),
-                );
-                ui.label(
-                    RichText::new("支持 CSV 数字行与 key=value 数字行解析")
-                        .italics()
+                    RichText::new(format!("最近文本行: {preview}"))
+                        .small()
                         .color(MUTED),
                 );
-            });
-
-            ui.add_space(4.0);
+            }
+        }
+        if app.chart_state.series.is_empty() {
             ui.label(
-                RichText::new(app.chart_state.latest_points_summary())
-                    .color(Color32::from_rgb(120, 172, 255)),
-            );
-            ui.label(
-                RichText::new(app.chart_state.schema_status_text())
-                    .small()
+                RichText::new("示例输入: 1.23,4.56,7.89 或 flag=143,key=1 都会自动生成曲线。")
                     .color(Color32::from_rgb(255, 196, 120)),
             );
-            if let Some(record) = app.receive_lines.back() {
-                if let Some(preview) = preview_text_line(&record.data) {
-                    ui.label(
-                        RichText::new(format!("最近文本行: {preview}"))
-                            .small()
-                            .color(MUTED),
-                    );
-                }
-            }
-            if app.chart_state.series.is_empty() {
-                ui.label(
-                    RichText::new("示例输入: 1.23,4.56,7.89 或 flag=143,key=1 都会自动生成曲线。")
-                        .color(Color32::from_rgb(255, 196, 120)),
-                );
-            }
+        }
 
-            ui.add_space(6.0);
-            let content_height = ui.available_height();
-            let available_size = egui::vec2(ui.available_width(), content_height);
-            let min_plot_width = 220.0;
-            let max_sidebar_width =
-                (available_size.x - min_plot_width - RESIZE_HANDLE_WIDTH - CONTENT_EDGE_SAFETY)
-                    .max(0.0);
-            let sidebar_width = app
-                .chart_state
-                .effective_sidebar_width(available_size.x)
-                .min(max_sidebar_width);
-            let plot_height = available_size.y.max(0.0);
-            let plot_width =
-                (available_size.x - sidebar_width - RESIZE_HANDLE_WIDTH - CONTENT_EDGE_SAFETY)
-                    .max(0.0);
+        ui.add_space(6.0);
+        let available_size = panel_shell::main_content_size(ui);
+        let min_plot_width = 220.0;
+        let max_sidebar_width =
+            (available_size.x - min_plot_width - RESIZE_HANDLE_WIDTH).max(0.0);
+        let sidebar_width = app
+            .chart_state
+            .effective_sidebar_width(available_size.x)
+            .min(max_sidebar_width);
+        let plot_height = available_size.y.max(0.0);
+        let plot_width = (available_size.x - sidebar_width - RESIZE_HANDLE_WIDTH).max(0.0);
 
-            ui.allocate_ui_with_layout(
-                available_size,
-                egui::Layout::left_to_right(egui::Align::Min),
-                |ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
+        ui.allocate_ui_with_layout(
+            available_size,
+            egui::Layout::left_to_right(egui::Align::Min),
+            |ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
 
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(plot_width, plot_height),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            let plot = Plot::new("serial_plot")
-                                .legend(Legend::default())
-                                .allow_scroll(true)
-                                .allow_zoom(true)
-                                .allow_drag(true)
-                                .include_y(0.0)
-                                .width(plot_width)
-                                .height(plot_height);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(plot_width, plot_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        let plot = Plot::new("serial_plot")
+                            .legend(Legend::default())
+                            .allow_scroll(true)
+                            .allow_zoom(true)
+                            .allow_drag(true)
+                            .include_y(0.0)
+                            .width(plot_width)
+                            .height(plot_height);
 
-                            let anticipated_plot_rect = egui::Rect::from_min_size(
-                                ui.available_rect_before_wrap().min,
-                                vec2(plot_width, plot_height),
-                            );
-                            let user_requested_history = app.chart_state.is_following()
-                                && plot_history_navigation_requested(ui.ctx(), anticipated_plot_rect);
-                            if user_requested_history {
-                                app.chart_state.pause_auto_follow();
-                            }
-
-                            let plot_response = plot.show(ui, |plot_ui| {
-                                if app.chart_state.is_following() {
-                                    if let Some((min_x, max_x)) = app.chart_state.x_bounds() {
-                                        let (min_y, max_y) =
-                                            app.chart_state.y_bounds().unwrap_or((-1.0, 1.0));
-                                        plot_ui.set_plot_bounds(PlotBounds::from_min_max(
-                                            [min_x, min_y],
-                                            [max_x, max_y],
-                                        ));
-                                    }
-                                    app.chart_state.sync_zoom_tracking();
-                                } else if let Some(bounds) =
-                                    app.chart_state.manual_zoomed_bounds(plot_ui.plot_bounds())
-                                {
-                                    plot_ui.set_plot_bounds(bounds);
-                                }
-
-                                for key in app.chart_state.visible_series_keys() {
-                                    if let Some(values) = app.chart_state.series.get(&key) {
-                                        let points = PlotPoints::from_iter(
-                                            values.iter().map(|p| [p[0], p[1]]),
-                                        );
-                                        plot_ui.line(
-                                            Line::new(points)
-                                                .name(app.chart_state.display_name(&key))
-                                                .color(series_color(&key)),
-                                        );
-                                    }
-                                }
-                            });
-
-                            if plot_interaction_changed_bounds(ui.ctx(), &plot_response.response) {
-                                app.chart_state.pause_auto_follow();
-                            }
-
-                            if app.chart_state.is_manual()
-                                && show_plot_follow_resume_button(
-                                    ui.ctx(),
-                                    plot_response.response.rect,
-                                )
-                            {
-                                app.chart_state.resume_auto_follow();
-                            }
-                        },
-                    );
-
-                    let (handle_rect, handle_response) = ui.allocate_exact_size(
-                        vec2(RESIZE_HANDLE_WIDTH, plot_height),
-                        egui::Sense::click_and_drag(),
-                    );
-                    let handle_color = if handle_response.dragged() {
-                        Color32::from_rgb(118, 150, 196)
-                    } else if handle_response.hovered() {
-                        Color32::from_rgb(176, 186, 202)
-                    } else {
-                        Color32::from_rgb(214, 220, 228)
-                    };
-                    ui.painter().line_segment(
-                        [
-                            handle_rect.center_top() + vec2(0.0, 20.0),
-                            handle_rect.center_bottom() - vec2(0.0, 20.0),
-                        ],
-                        Stroke::new(if handle_response.dragged() { 2.0 } else { 1.0 }, handle_color),
-                    );
-                    if handle_response.hovered() || handle_response.dragged() {
-                        ui.painter()
-                            .circle_filled(handle_rect.center(), 3.0, handle_color);
-                    }
-
-                    if handle_response.dragged() {
-                        let drag_delta_x = ui.input(|input| input.pointer.delta().x);
-                        if drag_delta_x.abs() > f32::EPSILON {
-                            app.chart_state
-                                .set_manual_sidebar_width(sidebar_width - drag_delta_x);
-                            app.persist_config();
+                        let anticipated_plot_rect = egui::Rect::from_min_size(
+                            ui.available_rect_before_wrap().min,
+                            vec2(plot_width, plot_height),
+                        );
+                        let user_requested_history = app.chart_state.is_following()
+                            && plot_history_navigation_requested(ui.ctx(), anticipated_plot_rect);
+                        if user_requested_history {
+                            app.chart_state.pause_auto_follow();
                         }
-                    }
 
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(sidebar_width, plot_height),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
+                        let plot_response = plot.show(ui, |plot_ui| {
+                            if app.chart_state.is_following() {
+                                if let Some((min_x, max_x)) = app.chart_state.x_bounds() {
+                                    let (min_y, max_y) =
+                                        app.chart_state.y_bounds().unwrap_or((-1.0, 1.0));
+                                    plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                                        [min_x, min_y],
+                                        [max_x, max_y],
+                                    ));
+                                }
+                                app.chart_state.sync_zoom_tracking();
+                            } else if let Some(bounds) =
+                                app.chart_state.manual_zoomed_bounds(plot_ui.plot_bounds())
+                            {
+                                plot_ui.set_plot_bounds(bounds);
+                            }
+
+                            for key in app.chart_state.visible_series_keys() {
+                                if let Some(values) = app.chart_state.series.get(&key) {
+                                    let points =
+                                        PlotPoints::from_iter(values.iter().map(|p| [p[0], p[1]]));
+                                    plot_ui.line(
+                                        Line::new(points)
+                                            .name(app.chart_state.display_name(&key))
+                                            .color(series_color(&key)),
+                                    );
+                                }
+                            }
+                        });
+
+                        if plot_interaction_changed_bounds(ui.ctx(), &plot_response.response) {
+                            app.chart_state.pause_auto_follow();
+                        }
+
+                        if app.chart_state.is_manual()
+                            && show_plot_follow_resume_button(ui.ctx(), plot_response.response.rect)
+                        {
+                            app.chart_state.resume_auto_follow();
+                        }
+                    },
+                );
+
+                let (handle_rect, handle_response) = ui.allocate_exact_size(
+                    vec2(RESIZE_HANDLE_WIDTH, plot_height),
+                    egui::Sense::click_and_drag(),
+                );
+                let handle_color = if handle_response.dragged() {
+                    Color32::from_rgb(118, 150, 196)
+                } else if handle_response.hovered() {
+                    Color32::from_rgb(176, 186, 202)
+                } else {
+                    Color32::from_rgb(214, 220, 228)
+                };
+                ui.painter().line_segment(
+                    [
+                        handle_rect.center_top() + vec2(0.0, 20.0),
+                        handle_rect.center_bottom() - vec2(0.0, 20.0),
+                    ],
+                    Stroke::new(if handle_response.dragged() { 2.0 } else { 1.0 }, handle_color),
+                );
+                if handle_response.hovered() || handle_response.dragged() {
+                    ui.painter()
+                        .circle_filled(handle_rect.center(), 3.0, handle_color);
+                }
+
+                if handle_response.dragged() {
+                    let drag_delta_x = ui.input(|input| input.pointer.delta().x);
+                    if drag_delta_x.abs() > f32::EPSILON {
+                        app.chart_state
+                            .set_manual_sidebar_width(sidebar_width - drag_delta_x);
+                        app.persist_config();
+                    }
+                }
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(sidebar_width, plot_height),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
                         ui.horizontal(|ui| {
                             ui.heading("曲线面板");
                         });
@@ -217,12 +203,23 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                             egui::vec2(ui.available_width(), sidebar_panel_height),
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
-                                egui::Frame::group(ui.style())
-                                    .fill(Color32::from_rgb(252, 253, 255))
-                                    .stroke(Stroke::new(1.0, Color32::from_rgb(209, 217, 226)))
-                                    .show(ui, |ui| {
-                                        ui.set_height(sidebar_panel_height);
-                                        ui.set_width(ui.available_width());
+                                let sidebar_size =
+                                    egui::vec2(ui.available_width(), sidebar_panel_height);
+                                let (sidebar_rect, _) =
+                                    ui.allocate_exact_size(sidebar_size, egui::Sense::hover());
+                                ui.painter().rect(
+                                    sidebar_rect,
+                                    egui::Rounding::same(SOFT_RADIUS),
+                                    Color32::from_rgb(252, 253, 255),
+                                    Stroke::new(1.0, Color32::from_rgb(209, 217, 226)),
+                                );
+
+                                let sidebar_inner_rect = sidebar_rect.shrink(8.0);
+                                ui.scope_builder(
+                                    egui::UiBuilder::new()
+                                        .max_rect(sidebar_inner_rect)
+                                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                                    |ui| {
                                         egui::ScrollArea::both()
                                             .auto_shrink([false, false])
                                             .show(ui, |ui| {
@@ -253,22 +250,21 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
                                                         for name in names {
                                                             let color = series_color(&name);
-                                                            let mut visible = app
-                                                                .chart_state
-                                                                .visible
-                                                                .contains(&name);
+                                                            let mut visible =
+                                                                app.chart_state.visible.contains(&name);
                                                             let stats = app
                                                                 .chart_state
                                                                 .series
                                                                 .get(&name)
                                                                 .map(|values| {
-                                                                    let mut min_value =
-                                                                        f64::INFINITY;
+                                                                    let mut min_value = f64::INFINITY;
                                                                     let mut max_value =
                                                                         f64::NEG_INFINITY;
                                                                     for point in values {
-                                                                        min_value = min_value.min(point[1]);
-                                                                        max_value = max_value.max(point[1]);
+                                                                        min_value =
+                                                                            min_value.min(point[1]);
+                                                                        max_value =
+                                                                            max_value.max(point[1]);
                                                                     }
                                                                     let current = values
                                                                         .back()
@@ -337,9 +333,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                                     let label = ui.add(
                                                                         egui::Label::new(
                                                                             RichText::new(
-                                                                                app.chart_state.display_name(
-                                                                                    &name,
-                                                                                ),
+                                                                                app.chart_state
+                                                                                    .display_name(&name),
                                                                             )
                                                                             .strong()
                                                                             .underline(),
@@ -355,8 +350,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                                 }
                                                             });
 
-                                                            if ui.checkbox(&mut visible, "").changed()
-                                                            {
+                                                            if ui.checkbox(&mut visible, "").changed() {
                                                                 if visible {
                                                                     app.chart_state
                                                                         .visible
@@ -369,26 +363,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                             }
 
                                                             ui.label(
-                                                                RichText::new(format!(
-                                                                    "{:.3}",
-                                                                    stats.0
-                                                                ))
-                                                                .monospace(),
+                                                                RichText::new(format!("{:.3}", stats.0))
+                                                                    .monospace(),
                                                             );
                                                             ui.label(
-                                                                RichText::new(format!(
-                                                                    "{:.3}",
-                                                                    stats.1
-                                                                ))
-                                                                .monospace(),
+                                                                RichText::new(format!("{:.3}", stats.1))
+                                                                    .monospace(),
                                                             );
                                                             ui.label(
-                                                                RichText::new(format!(
-                                                                    "{:.3}",
-                                                                    stats.2
-                                                                ))
-                                                                .monospace()
-                                                                .color(color),
+                                                                RichText::new(format!("{:.3}", stats.2))
+                                                                    .monospace()
+                                                                    .color(color),
                                                             );
 
                                                             if ui.button("清除").clicked() {
@@ -398,22 +383,23 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                         }
                                                     });
                                             });
-                                    });
+                                    },
+                                );
                             },
                         );
                     },
-                    );
-                },
-            );
-
-            if app.chart_state.is_paused() {
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new("绘图已暂停，新的解析数据不会追加到曲线。")
-                        .color(Color32::from_rgb(255, 196, 120)),
                 );
-            }
-        });
+            },
+        );
+
+        if app.chart_state.is_paused() {
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("绘图已暂停，新的解析数据不会追加到曲线。")
+                    .color(Color32::from_rgb(255, 196, 120)),
+            );
+        }
+    });
 }
 
 fn plot_history_navigation_requested(ctx: &egui::Context, plot_rect: egui::Rect) -> bool {
@@ -471,7 +457,9 @@ fn show_plot_follow_resume_button(ctx: &egui::Context, anchor_rect: egui::Rect) 
             if ui
                 .add_sized(
                     egui::vec2(estimated_width, 28.0),
-                    egui::Button::new(RichText::new(button_text).color(Color32::from_rgb(66, 112, 168)))
+                    egui::Button::new(
+                        RichText::new(button_text).color(Color32::from_rgb(66, 112, 168)),
+                    )
                     .wrap_mode(egui::TextWrapMode::Extend)
                     .fill(Color32::from_rgba_unmultiplied(241, 246, 252, 248))
                     .stroke(Stroke::new(1.0, Color32::from_rgb(188, 206, 228)))
@@ -488,15 +476,50 @@ fn show_plot_follow_resume_button(ctx: &egui::Context, anchor_rect: egui::Rect) 
 
 fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(240, 246, 252))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(209, 217, 226)))
-        .inner_margin(egui::Margin::symmetric(6.0, 4.0))
+        .fill(Color32::from_rgb(243, 248, 253))
+        .stroke(Stroke::new(1.0, Color32::from_rgb(198, 213, 229)))
+        .rounding(egui::Rounding::same(SEGMENT_OUTER_RADIUS))
+        .inner_margin(egui::Margin::symmetric(4.0, 4.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut app.active_view, MainView::Plot, "数据绘图");
-                ui.selectable_value(&mut app.active_view, MainView::Monitor, "串口监视");
+                segmented_view_button(ui, &mut app.active_view, MainView::Plot, "数据绘图");
+                segmented_view_button(ui, &mut app.active_view, MainView::Monitor, "串口监视");
             });
         });
+}
+
+fn segmented_view_button(
+    ui: &mut egui::Ui,
+    active_view: &mut MainView,
+    value: MainView,
+    label: &str,
+) {
+    let selected = *active_view == value;
+    let text_color = if selected {
+        Color32::from_rgb(37, 107, 164)
+    } else {
+        INK
+    };
+    let fill = if selected {
+        Color32::from_rgb(180, 223, 251)
+    } else {
+        Color32::TRANSPARENT
+    };
+    let stroke = if selected {
+        Stroke::new(1.0, Color32::from_rgb(165, 208, 240))
+    } else {
+        Stroke::NONE
+    };
+
+    let button = egui::Button::new(RichText::new(label).color(text_color).strong())
+        .fill(fill)
+        .stroke(stroke)
+        .rounding(egui::Rounding::same(SEGMENT_INNER_RADIUS))
+        .min_size(egui::vec2(0.0, 30.0));
+
+    if ui.add(button).clicked() {
+        *active_view = value;
+    }
 }
 
 fn series_color(name: &str) -> Color32 {

@@ -1,3 +1,4 @@
+pub mod panel_shell;
 pub mod plot_panel;
 pub mod receive_panel;
 pub mod send_panel;
