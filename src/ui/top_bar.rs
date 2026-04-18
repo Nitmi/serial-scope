@@ -6,8 +6,8 @@ use crate::serial::{DataBitsSetting, ParitySetting, StopBitsSetting};
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(108, 116, 126);
 const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
-const SURFACE: Color32 = Color32::from_rgb(250, 248, 244);
-const LINE: Color32 = Color32::from_rgb(214, 220, 228);
+const SURFACE: Color32 = Color32::from_rgb(255, 255, 255);
+const LINE: Color32 = Color32::from_rgb(208, 218, 230);
 const COMMON_BAUD_RATES: [u32; 11] = [
     1_200, 2_400, 4_800, 9_600, 19_200, 38_400, 57_600, 115_200, 230_400, 460_800, 921_600,
 ];
@@ -15,6 +15,7 @@ const COMMON_BAUD_RATES: [u32; 11] = [
 pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
     egui::TopBottomPanel::top("top_bar")
         .resizable(false)
+        .show_separator_line(false)
         .show(ctx, |ui| {
             egui::Frame::default()
                 .inner_margin(egui::Margin::same(12.0))
@@ -167,7 +168,7 @@ fn primary_band() -> egui::Frame {
         .fill(SURFACE)
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
-        .outer_margin(egui::Margin::same(0.0))
+        .outer_margin(egui::Margin::symmetric(0.0, 2.0))
 }
 
 fn error_card(ui: &mut egui::Ui, error: &str) {

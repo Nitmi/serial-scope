@@ -114,34 +114,34 @@ fn load_system_cjk_font() -> Option<(String, FontData)> {
 
 fn configure_theme(ctx: &egui::Context) {
     let ink = egui::Color32::from_rgb(47, 55, 65);
-    let muted = egui::Color32::from_rgb(104, 114, 126);
-    let accent = egui::Color32::from_rgb(92, 138, 196);
-    let accent_soft = egui::Color32::from_rgb(214, 229, 246);
-    let line = egui::Color32::from_rgb(214, 220, 228);
+    let muted = egui::Color32::from_rgb(95, 110, 126);
+    let accent = egui::Color32::from_rgb(84, 136, 202);
+    let accent_soft = egui::Color32::from_rgb(219, 235, 250);
+    let line = egui::Color32::from_rgb(205, 216, 229);
 
     let mut visuals = egui::Visuals::light();
     visuals.override_text_color = Some(ink);
     visuals.hyperlink_color = accent;
     visuals.selection.bg_fill = accent_soft;
     visuals.selection.stroke = egui::Stroke::new(1.0, accent);
-    visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(246, 244, 239);
+    visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(244, 248, 253);
     visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, line);
     visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, muted);
-    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(252, 251, 248);
+    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(250, 252, 255);
     visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, line);
     visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, ink);
-    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(240, 244, 249);
+    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(236, 245, 252);
     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, accent);
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, ink);
     visuals.widgets.active.bg_fill = accent;
     visuals.widgets.active.bg_stroke =
         egui::Stroke::new(1.0, egui::Color32::from_rgb(72, 116, 172));
     visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-    visuals.faint_bg_color = egui::Color32::from_rgb(239, 236, 231);
+    visuals.faint_bg_color = egui::Color32::from_rgb(236, 242, 248);
     visuals.extreme_bg_color = egui::Color32::from_rgb(255, 255, 255);
-    visuals.code_bg_color = egui::Color32::from_rgb(248, 246, 242);
-    visuals.panel_fill = egui::Color32::from_rgb(243, 241, 236);
-    visuals.window_fill = egui::Color32::from_rgb(246, 244, 240);
+    visuals.code_bg_color = egui::Color32::from_rgb(248, 250, 253);
+    visuals.panel_fill = egui::Color32::from_rgb(244, 248, 253);
+    visuals.window_fill = egui::Color32::from_rgb(245, 249, 254);
     visuals.window_stroke = egui::Stroke::new(1.0, line);
     visuals.warn_fg_color = egui::Color32::from_rgb(184, 120, 46);
     visuals.error_fg_color = egui::Color32::from_rgb(196, 92, 92);

@@ -6,16 +6,17 @@ use crate::serial::DisplayMode;
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
 const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
-const LINE: Color32 = Color32::from_rgb(216, 221, 229);
+const LINE: Color32 = Color32::from_rgb(208, 218, 230);
 const LOG_SURFACE_VERTICAL_PADDING: f32 = 16.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     let frame_vertical_padding = 24.0;
     let panel_content_height = (ui.available_height() - frame_vertical_padding).max(0.0);
     egui::Frame::group(ui.style())
-        .fill(Color32::from_rgb(249, 247, 243))
+        .fill(Color32::from_rgb(255, 255, 255))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .outer_margin(egui::Margin::symmetric(0.0, 2.0))
         .show(ui, |ui| {
             ui.set_height(panel_content_height);
             ui.horizontal_wrapped(|ui| {
@@ -30,7 +31,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
             ui.add_space(8.0);
             egui::Frame::none()
-                .fill(Color32::from_rgb(244, 241, 236))
+                .fill(Color32::from_rgb(240, 246, 252))
                 .stroke(Stroke::new(1.0, LINE))
                 .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                 .show(ui, |ui| {
@@ -69,7 +70,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
 fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(244, 241, 236))
+        .fill(Color32::from_rgb(240, 246, 252))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(6.0, 4.0))
         .show(ui, |ui| {
@@ -82,7 +83,7 @@ fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
 fn toolbar_row(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(244, 241, 236))
+        .fill(Color32::from_rgb(240, 246, 252))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(10.0, 8.0))
         .show(ui, |ui| {
@@ -129,7 +130,7 @@ fn toolbar_row(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
 fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(255, 255, 255))
+        .fill(Color32::from_rgb(252, 253, 255))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::same(8.0))
         .show(ui, |ui| {
@@ -184,14 +185,14 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
                         let row_fill = if has_highlight {
                             Color32::from_rgb(255, 246, 221)
                         } else if index % 2 == 0 {
-                            Color32::from_rgb(252, 251, 248)
+                            Color32::from_rgb(250, 252, 255)
                         } else {
-                            Color32::from_rgb(248, 246, 242)
+                            Color32::from_rgb(246, 249, 253)
                         };
 
                         egui::Frame::none()
                             .fill(row_fill)
-                            .stroke(Stroke::new(1.0, Color32::from_rgb(239, 234, 228)))
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(228, 236, 244)))
                             .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                             .show(ui, |ui| {
                                 ui.horizontal_wrapped(|ui| {

@@ -7,15 +7,16 @@ const RESIZE_HANDLE_WIDTH: f32 = 12.0;
 const CONTENT_EDGE_SAFETY: f32 = 2.0;
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
-const LINE: Color32 = Color32::from_rgb(216, 221, 229);
+const LINE: Color32 = Color32::from_rgb(208, 218, 230);
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     let frame_vertical_padding = 24.0;
     let panel_content_height = (ui.available_height() - frame_vertical_padding).max(0.0);
     egui::Frame::group(ui.style())
-        .fill(Color32::from_rgb(249, 247, 243))
+        .fill(Color32::from_rgb(255, 255, 255))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
+        .outer_margin(egui::Margin::symmetric(0.0, 2.0))
         .show(ui, |ui| {
             ui.set_height(panel_content_height);
             ui.horizontal_wrapped(|ui| {
@@ -217,8 +218,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
                                 egui::Frame::group(ui.style())
-                                    .fill(Color32::from_rgb(255, 255, 255))
-                                    .stroke(Stroke::new(1.0, Color32::from_rgb(216, 221, 229)))
+                                    .fill(Color32::from_rgb(252, 253, 255))
+                                    .stroke(Stroke::new(1.0, Color32::from_rgb(209, 217, 226)))
                                     .show(ui, |ui| {
                                         ui.set_height(sidebar_panel_height);
                                         ui.set_width(ui.available_width());
@@ -487,8 +488,8 @@ fn show_plot_follow_resume_button(ctx: &egui::Context, anchor_rect: egui::Rect) 
 
 fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     egui::Frame::none()
-        .fill(Color32::from_rgb(244, 241, 236))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(216, 221, 229)))
+        .fill(Color32::from_rgb(240, 246, 252))
+        .stroke(Stroke::new(1.0, Color32::from_rgb(209, 217, 226)))
         .inner_margin(egui::Margin::symmetric(6.0, 4.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
