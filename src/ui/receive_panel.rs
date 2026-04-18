@@ -7,18 +7,17 @@ const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
 const ACCENT: Color32 = Color32::from_rgb(92, 138, 196);
 const LINE: Color32 = Color32::from_rgb(216, 221, 229);
+const LOG_SURFACE_VERTICAL_PADDING: f32 = 16.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
-    let panel_bottom_gap = 6.0;
     let frame_vertical_padding = 24.0;
-    let panel_content_height =
-        (ui.available_height() - panel_bottom_gap - frame_vertical_padding).max(0.0);
+    let panel_content_height = (ui.available_height() - frame_vertical_padding).max(0.0);
     egui::Frame::group(ui.style())
         .fill(Color32::from_rgb(249, 247, 243))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
-            ui.set_min_height(panel_content_height);
+            ui.set_height(panel_content_height);
             ui.horizontal_wrapped(|ui| {
                 ui.heading(RichText::new("接收区").color(INK));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -55,14 +54,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 });
 
             ui.add_space(10.0);
-            let content_bottom_gap = 8.0;
-            let log_frame_vertical_padding = 16.0;
-            let log_height =
-                (ui.available_height() - content_bottom_gap - log_frame_vertical_padding).max(0.0);
-            log_surface(ui, app, log_height);
+            let content_bottom_gap = 2.0;
+            let log_height = (ui.available_height() - content_bottom_gap).max(0.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), log_height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    log_surface(ui, app, log_height);
+                },
+            );
             ui.add_space(content_bottom_gap);
         });
-    ui.add_space(panel_bottom_gap);
 }
 
 fn view_switch(ui: &mut egui::Ui, app: &mut SerialToolApp) {
@@ -131,7 +133,7 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::same(8.0))
         .show(ui, |ui| {
-            ui.set_min_height(min_height.max(420.0));
+            ui.set_height((min_height - LOG_SURFACE_VERTICAL_PADDING).max(0.0));
             let anticipated_log_rect = ui.available_rect_before_wrap();
             let pointer_over_log = ui
                 .ctx()

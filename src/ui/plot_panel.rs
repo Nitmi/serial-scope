@@ -4,18 +4,20 @@ use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 use crate::app::{preview_text_line, MainView, SerialToolApp};
 
 const RESIZE_HANDLE_WIDTH: f32 = 12.0;
-const MIN_PLOT_WIDTH: f32 = 420.0;
+const CONTENT_EDGE_SAFETY: f32 = 2.0;
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
 const LINE: Color32 = Color32::from_rgb(216, 221, 229);
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
+    let frame_vertical_padding = 24.0;
+    let panel_content_height = (ui.available_height() - frame_vertical_padding).max(0.0);
     egui::Frame::group(ui.style())
         .fill(Color32::from_rgb(249, 247, 243))
         .stroke(Stroke::new(1.0, LINE))
         .inner_margin(egui::Margin::symmetric(14.0, 12.0))
         .show(ui, |ui| {
-            ui.set_min_height(260.0);
+            ui.set_height(panel_content_height);
             ui.horizontal_wrapped(|ui| {
                 ui.heading(RichText::new("实时曲线").color(INK));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -68,281 +70,355 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             }
 
             ui.add_space(6.0);
-            let available_size = ui.available_size();
-            let sidebar_width = app.chart_state.effective_sidebar_width(available_size.x);
-            let plot_height = available_size.y.max(520.0);
+            let content_height = ui.available_height();
+            let available_size = egui::vec2(ui.available_width(), content_height);
+            let min_plot_width = 220.0;
+            let max_sidebar_width =
+                (available_size.x - min_plot_width - RESIZE_HANDLE_WIDTH - CONTENT_EDGE_SAFETY)
+                    .max(0.0);
+            let sidebar_width = app
+                .chart_state
+                .effective_sidebar_width(available_size.x)
+                .min(max_sidebar_width);
+            let plot_height = available_size.y.max(0.0);
+            let plot_width =
+                (available_size.x - sidebar_width - RESIZE_HANDLE_WIDTH - CONTENT_EDGE_SAFETY)
+                    .max(0.0);
 
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    let plot_width =
-                        (available_size.x - sidebar_width - RESIZE_HANDLE_WIDTH - 18.0)
-                            .max(MIN_PLOT_WIDTH);
-                    ui.set_width(plot_width);
+            ui.allocate_ui_with_layout(
+                available_size,
+                egui::Layout::left_to_right(egui::Align::Min),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
 
-                    let plot = Plot::new("serial_plot")
-                        .legend(Legend::default())
-                        .allow_scroll(true)
-                        .allow_zoom(true)
-                        .allow_drag(true)
-                        .include_y(0.0)
-                        .width(plot_width)
-                        .height(plot_height);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(plot_width, plot_height),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            let plot = Plot::new("serial_plot")
+                                .legend(Legend::default())
+                                .allow_scroll(true)
+                                .allow_zoom(true)
+                                .allow_drag(true)
+                                .include_y(0.0)
+                                .width(plot_width)
+                                .height(plot_height);
 
-                    let anticipated_plot_rect = egui::Rect::from_min_size(
-                        ui.available_rect_before_wrap().min,
-                        vec2(plot_width, plot_height),
-                    );
-                    let user_requested_history = app.chart_state.is_following()
-                        && plot_history_navigation_requested(ui.ctx(), anticipated_plot_rect);
-                    if user_requested_history {
-                        app.chart_state.pause_auto_follow();
-                    }
-
-                    let plot_response = plot.show(ui, |plot_ui| {
-                        if app.chart_state.is_following() {
-                            if let Some((min_x, max_x)) = app.chart_state.x_bounds() {
-                                let (min_y, max_y) =
-                                    app.chart_state.y_bounds().unwrap_or((-1.0, 1.0));
-                                plot_ui.set_plot_bounds(PlotBounds::from_min_max(
-                                    [min_x, min_y],
-                                    [max_x, max_y],
-                                ));
-                            }
-                            app.chart_state.sync_zoom_tracking();
-                        } else if let Some(bounds) = app
-                            .chart_state
-                            .manual_zoomed_bounds(plot_ui.plot_bounds())
-                        {
-                            plot_ui.set_plot_bounds(bounds);
-                        }
-
-                        for key in app.chart_state.visible_series_keys() {
-                            if let Some(values) = app.chart_state.series.get(&key) {
-                                let points =
-                                    PlotPoints::from_iter(values.iter().map(|p| [p[0], p[1]]));
-                                plot_ui.line(
-                                    Line::new(points)
-                                        .name(app.chart_state.display_name(&key))
-                                        .color(series_color(&key)),
-                                );
-                            }
-                        }
-                    });
-
-                    if plot_interaction_changed_bounds(ui.ctx(), &plot_response.response) {
-                        app.chart_state.pause_auto_follow();
-                    }
-
-                    if app.chart_state.is_manual()
-                        && show_plot_follow_resume_button(ui.ctx(), plot_response.response.rect)
-                    {
-                        app.chart_state.resume_auto_follow();
-                    }
-                });
-
-                let (handle_rect, handle_response) = ui.allocate_exact_size(
-                    vec2(RESIZE_HANDLE_WIDTH, plot_height),
-                    egui::Sense::click_and_drag(),
-                );
-                let handle_color = if handle_response.dragged() || handle_response.hovered() {
-                    Color32::from_rgb(120, 172, 255)
-                } else {
-                    Color32::from_rgb(68, 74, 86)
-                };
-                ui.painter().line_segment(
-                    [
-                        handle_rect.center_top() + vec2(0.0, 16.0),
-                        handle_rect.center_bottom() - vec2(0.0, 16.0),
-                    ],
-                    Stroke::new(2.0, handle_color),
-                );
-                ui.painter()
-                    .circle_filled(handle_rect.center(), 4.0, handle_color);
-
-                if handle_response.dragged() {
-                    let drag_delta_x = ui.input(|input| input.pointer.delta().x);
-                    if drag_delta_x.abs() > f32::EPSILON {
-                        app.chart_state
-                            .set_manual_sidebar_width(sidebar_width - drag_delta_x);
-                        app.persist_config();
-                    }
-                }
-
-                ui.vertical(|ui| {
-                    ui.set_width(sidebar_width);
-                    ui.horizontal(|ui| {
-                        ui.heading("曲线面板");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let reset_button = ui.add_enabled(
-                                !app.chart_state.auto_sidebar_width,
-                                egui::Button::new("重置布局"),
+                            let anticipated_plot_rect = egui::Rect::from_min_size(
+                                ui.available_rect_before_wrap().min,
+                                vec2(plot_width, plot_height),
                             );
-                            if reset_button.clicked() {
-                                app.chart_state.reset_sidebar_width();
-                                app.persist_config();
+                            let user_requested_history = app.chart_state.is_following()
+                                && plot_history_navigation_requested(ui.ctx(), anticipated_plot_rect);
+                            if user_requested_history {
+                                app.chart_state.pause_auto_follow();
                             }
-                            ui.label(
-                                RichText::new(if app.chart_state.auto_sidebar_width {
-                                    "自动宽度"
-                                } else {
-                                    "手动宽度"
-                                })
-                                .small()
-                                .color(Color32::from_rgb(140, 148, 160)),
-                            );
-                        });
-                    });
-                    ui.label(RichText::new("拖动中间分隔线可调整宽度，X/Y 缩放互相独立。").small());
-                    ui.add_space(4.0);
-                    ui.add(Slider::new(&mut app.chart_state.x_zoom, 0.2..=5.0).text("X 轴缩放"));
-                    ui.add(Slider::new(&mut app.chart_state.y_zoom, 0.2..=5.0).text("Y 轴缩放"));
-                    ui.add_space(8.0);
 
-                    egui::Frame::group(ui.style())
-                        .fill(Color32::from_rgb(255, 255, 255))
-                        .stroke(Stroke::new(1.0, Color32::from_rgb(216, 221, 229)))
-                        .show(ui, |ui| {
-                            ui.set_min_height(available_size.y.max(520.0));
-                            egui::ScrollArea::vertical()
-                                .auto_shrink([false; 2])
-                                .show(ui, |ui| {
-                                    let names =
-                                        app.chart_state.series.keys().cloned().collect::<Vec<_>>();
-
-                                    if names.is_empty() {
-                                        ui.label("暂无数据");
-                                        return;
+                            let plot_response = plot.show(ui, |plot_ui| {
+                                if app.chart_state.is_following() {
+                                    if let Some((min_x, max_x)) = app.chart_state.x_bounds() {
+                                        let (min_y, max_y) =
+                                            app.chart_state.y_bounds().unwrap_or((-1.0, 1.0));
+                                        plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                                            [min_x, min_y],
+                                            [max_x, max_y],
+                                        ));
                                     }
+                                    app.chart_state.sync_zoom_tracking();
+                                } else if let Some(bounds) =
+                                    app.chart_state.manual_zoomed_bounds(plot_ui.plot_bounds())
+                                {
+                                    plot_ui.set_plot_bounds(bounds);
+                                }
 
-                                    egui::Grid::new("plot_series_stats")
-                                        .num_columns(6)
-                                        .spacing([10.0, 8.0])
-                                        .striped(true)
-                                        .show(ui, |ui| {
-                                            ui.label("");
-                                            ui.label(RichText::new("显示").strong());
-                                            ui.label(RichText::new("最小值").strong());
-                                            ui.label(RichText::new("最大值").strong());
-                                            ui.label(RichText::new("当前值").strong());
-                                            ui.label(RichText::new("操作").strong());
-                                            ui.end_row();
+                                for key in app.chart_state.visible_series_keys() {
+                                    if let Some(values) = app.chart_state.series.get(&key) {
+                                        let points = PlotPoints::from_iter(
+                                            values.iter().map(|p| [p[0], p[1]]),
+                                        );
+                                        plot_ui.line(
+                                            Line::new(points)
+                                                .name(app.chart_state.display_name(&key))
+                                                .color(series_color(&key)),
+                                        );
+                                    }
+                                }
+                            });
 
-                                            for name in names {
-                                                let color = series_color(&name);
-                                                let mut visible =
-                                                    app.chart_state.visible.contains(&name);
-                                                let stats = app
+                            if plot_interaction_changed_bounds(ui.ctx(), &plot_response.response) {
+                                app.chart_state.pause_auto_follow();
+                            }
+
+                            if app.chart_state.is_manual()
+                                && show_plot_follow_resume_button(
+                                    ui.ctx(),
+                                    plot_response.response.rect,
+                                )
+                            {
+                                app.chart_state.resume_auto_follow();
+                            }
+                        },
+                    );
+
+                    let (handle_rect, handle_response) = ui.allocate_exact_size(
+                        vec2(RESIZE_HANDLE_WIDTH, plot_height),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let handle_color = if handle_response.dragged() || handle_response.hovered() {
+                        Color32::from_rgb(120, 172, 255)
+                    } else {
+                        Color32::from_rgb(68, 74, 86)
+                    };
+                    ui.painter().line_segment(
+                        [
+                            handle_rect.center_top() + vec2(0.0, 16.0),
+                            handle_rect.center_bottom() - vec2(0.0, 16.0),
+                        ],
+                        Stroke::new(2.0, handle_color),
+                    );
+                    ui.painter()
+                        .circle_filled(handle_rect.center(), 4.0, handle_color);
+
+                    if handle_response.dragged() {
+                        let drag_delta_x = ui.input(|input| input.pointer.delta().x);
+                        if drag_delta_x.abs() > f32::EPSILON {
+                            app.chart_state
+                                .set_manual_sidebar_width(sidebar_width - drag_delta_x);
+                            app.persist_config();
+                        }
+                    }
+
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(sidebar_width, plot_height),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                        ui.horizontal(|ui| {
+                            ui.heading("曲线面板");
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let reset_button = ui.add_enabled(
+                                    !app.chart_state.auto_sidebar_width,
+                                    egui::Button::new("重置布局"),
+                                );
+                                if reset_button.clicked() {
+                                    app.chart_state.reset_sidebar_width();
+                                    app.persist_config();
+                                }
+                                ui.label(
+                                        RichText::new(if app.chart_state.auto_sidebar_width {
+                                            "自动宽度"
+                                        } else {
+                                            "手动宽度"
+                                        })
+                                    .small()
+                                    .color(Color32::from_rgb(140, 148, 160)),
+                                );
+                            });
+                        });
+                        ui.label(
+                            RichText::new("拖动中间分隔线可调整宽度，X/Y 缩放互相独立。").small(),
+                        );
+                        ui.add_space(4.0);
+                        ui.add(
+                            Slider::new(&mut app.chart_state.x_zoom, 0.2..=5.0).text("X 轴缩放"),
+                        );
+                        ui.add(
+                            Slider::new(&mut app.chart_state.y_zoom, 0.2..=5.0).text("Y 轴缩放"),
+                        );
+                        ui.add_space(8.0);
+                        let sidebar_panel_height = ui.available_height().max(0.0);
+
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(ui.available_width(), sidebar_panel_height),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                egui::Frame::group(ui.style())
+                                    .fill(Color32::from_rgb(255, 255, 255))
+                                    .stroke(Stroke::new(1.0, Color32::from_rgb(216, 221, 229)))
+                                    .show(ui, |ui| {
+                                        ui.set_height(sidebar_panel_height);
+                                        ui.set_width(ui.available_width());
+                                        egui::ScrollArea::both()
+                                            .auto_shrink([false, false])
+                                            .show(ui, |ui| {
+                                                let names = app
                                                     .chart_state
                                                     .series
-                                                    .get(&name)
-                                                    .map(|values| {
-                                                        let mut min_value = f64::INFINITY;
-                                                        let mut max_value = f64::NEG_INFINITY;
-                                                        for point in values {
-                                                            min_value = min_value.min(point[1]);
-                                                            max_value = max_value.max(point[1]);
-                                                        }
-                                                        let current = values
-                                                            .back()
-                                                            .map(|point| point[1])
-                                                            .unwrap_or(0.0);
-                                                        (min_value, max_value, current)
-                                                    })
-                                                    .unwrap_or((0.0, 0.0, 0.0));
+                                                    .keys()
+                                                    .cloned()
+                                                    .collect::<Vec<_>>();
 
-                                                ui.horizontal(|ui| {
-                                                    let (rect, _) = ui.allocate_exact_size(
-                                                        vec2(10.0, 10.0),
-                                                        egui::Sense::hover(),
-                                                    );
-                                                    ui.painter().circle_filled(
-                                                        rect.center(),
-                                                        5.0,
-                                                        color,
-                                                    );
-                                                    if app.chart_state.is_renaming_series(&name) {
-                                                        let mut commit = false;
-                                                        let mut cancel = false;
+                                                if names.is_empty() {
+                                                    ui.label("暂无数据");
+                                                    return;
+                                                }
 
-                                                        if let Some(editing_name) =
-                                                            app.chart_state.renaming_series_name_mut()
-                                                        {
-                                                            let response = ui.add(
-                                                                egui::TextEdit::singleline(editing_name)
-                                                                    .desired_width(120.0),
-                                                            );
-                                                            commit = response.lost_focus()
-                                                                && ui.input(|input| {
-                                                                    input.key_pressed(egui::Key::Enter)
-                                                                });
-                                                            cancel = ui.input(|input| {
-                                                                input.key_pressed(egui::Key::Escape)
+                                                egui::Grid::new("plot_series_stats")
+                                                    .num_columns(6)
+                                                    .spacing([10.0, 8.0])
+                                                    .striped(true)
+                                                    .show(ui, |ui| {
+                                                        ui.label("");
+                                                        ui.label(RichText::new("显示").strong());
+                                                        ui.label(RichText::new("最小值").strong());
+                                                        ui.label(RichText::new("最大值").strong());
+                                                        ui.label(RichText::new("当前值").strong());
+                                                        ui.label(RichText::new("操作").strong());
+                                                        ui.end_row();
+
+                                                        for name in names {
+                                                            let color = series_color(&name);
+                                                            let mut visible = app
+                                                                .chart_state
+                                                                .visible
+                                                                .contains(&name);
+                                                            let stats = app
+                                                                .chart_state
+                                                                .series
+                                                                .get(&name)
+                                                                .map(|values| {
+                                                                    let mut min_value =
+                                                                        f64::INFINITY;
+                                                                    let mut max_value =
+                                                                        f64::NEG_INFINITY;
+                                                                    for point in values {
+                                                                        min_value = min_value.min(point[1]);
+                                                                        max_value = max_value.max(point[1]);
+                                                                    }
+                                                                    let current = values
+                                                                        .back()
+                                                                        .map(|point| point[1])
+                                                                        .unwrap_or(0.0);
+                                                                    (min_value, max_value, current)
+                                                                })
+                                                                .unwrap_or((0.0, 0.0, 0.0));
+
+                                                            ui.horizontal(|ui| {
+                                                                let (rect, _) =
+                                                                    ui.allocate_exact_size(
+                                                                        vec2(10.0, 10.0),
+                                                                        egui::Sense::hover(),
+                                                                    );
+                                                                ui.painter().circle_filled(
+                                                                    rect.center(),
+                                                                    5.0,
+                                                                    color,
+                                                                );
+                                                                if app
+                                                                    .chart_state
+                                                                    .is_renaming_series(&name)
+                                                                {
+                                                                    let mut commit = false;
+                                                                    let mut cancel = false;
+
+                                                                    if let Some(editing_name) = app
+                                                                        .chart_state
+                                                                        .renaming_series_name_mut()
+                                                                    {
+                                                                        let response = ui.add(
+                                                                            egui::TextEdit::singleline(
+                                                                                editing_name,
+                                                                            )
+                                                                            .desired_width(120.0),
+                                                                        );
+                                                                        commit = response.lost_focus()
+                                                                            && ui.input(|input| {
+                                                                                input.key_pressed(
+                                                                                    egui::Key::Enter,
+                                                                                )
+                                                                            });
+                                                                        cancel = ui.input(|input| {
+                                                                            input.key_pressed(
+                                                                                egui::Key::Escape,
+                                                                            )
+                                                                        });
+                                                                    }
+
+                                                                    if ui.small_button("确定").clicked() {
+                                                                        commit = true;
+                                                                    }
+                                                                    if ui.small_button("取消").clicked() {
+                                                                        cancel = true;
+                                                                    }
+
+                                                                    if commit {
+                                                                        app.chart_state
+                                                                            .commit_series_renaming();
+                                                                    } else if cancel {
+                                                                        app.chart_state
+                                                                            .cancel_series_renaming();
+                                                                    }
+                                                                } else {
+                                                                    let label = ui.add(
+                                                                        egui::Label::new(
+                                                                            RichText::new(
+                                                                                app.chart_state.display_name(
+                                                                                    &name,
+                                                                                ),
+                                                                            )
+                                                                            .strong()
+                                                                            .underline(),
+                                                                        )
+                                                                        .sense(egui::Sense::click()),
+                                                                    );
+                                                                    if label.clicked() {
+                                                                        app.chart_state
+                                                                            .start_series_renaming(
+                                                                                &name,
+                                                                            );
+                                                                    }
+                                                                }
                                                             });
-                                                        }
 
-                                                        if ui.small_button("确定").clicked() {
-                                                            commit = true;
-                                                        }
-                                                        if ui.small_button("取消").clicked() {
-                                                            cancel = true;
-                                                        }
+                                                            if ui.checkbox(&mut visible, "").changed()
+                                                            {
+                                                                if visible {
+                                                                    app.chart_state
+                                                                        .visible
+                                                                        .insert(name.clone());
+                                                                } else {
+                                                                    app.chart_state
+                                                                        .visible
+                                                                        .remove(&name);
+                                                                }
+                                                            }
 
-                                                        if commit {
-                                                            app.chart_state.commit_series_renaming();
-                                                        } else if cancel {
-                                                            app.chart_state.cancel_series_renaming();
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "{:.3}",
+                                                                    stats.0
+                                                                ))
+                                                                .monospace(),
+                                                            );
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "{:.3}",
+                                                                    stats.1
+                                                                ))
+                                                                .monospace(),
+                                                            );
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "{:.3}",
+                                                                    stats.2
+                                                                ))
+                                                                .monospace()
+                                                                .color(color),
+                                                            );
+
+                                                            if ui.button("清除").clicked() {
+                                                                app.chart_state.clear_series(&name);
+                                                            }
+                                                            ui.end_row();
                                                         }
-                                                    } else {
-                                                        let label = ui.add(
-                                                            egui::Label::new(
-                                                                RichText::new(
-                                                                    app.chart_state.display_name(&name),
-                                                                )
-                                                                .strong()
-                                                                .underline(),
-                                                            )
-                                                            .sense(egui::Sense::click()),
-                                                        );
-                                                        if label.clicked() {
-                                                            app.chart_state.start_series_renaming(&name);
-                                                        }
-                                                    }
-                                                });
-
-                                                if ui.checkbox(&mut visible, "").changed() {
-                                                    if visible {
-                                                        app.chart_state
-                                                            .visible
-                                                            .insert(name.clone());
-                                                    } else {
-                                                        app.chart_state.visible.remove(&name);
-                                                    }
-                                                }
-
-                                                ui.label(
-                                                    RichText::new(format!("{:.3}", stats.0))
-                                                        .monospace(),
-                                                );
-                                                ui.label(
-                                                    RichText::new(format!("{:.3}", stats.1))
-                                                        .monospace(),
-                                                );
-                                                ui.label(
-                                                    RichText::new(format!("{:.3}", stats.2))
-                                                        .monospace()
-                                                        .color(color),
-                                                );
-
-                                                if ui.button("清除").clicked() {
-                                                    app.chart_state.clear_series(&name);
-                                                }
-                                                ui.end_row();
-                                            }
-                                        });
-                                });
-                        });
-                });
-            });
+                                                    });
+                                            });
+                                    });
+                            },
+                        );
+                    },
+                    );
+                },
+            );
 
             if app.chart_state.is_paused() {
                 ui.add_space(4.0);

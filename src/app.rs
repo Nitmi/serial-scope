@@ -584,7 +584,10 @@ impl eframe::App for SerialToolApp {
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            let panel_alignment_trim = 4.5;
+            let panel_alignment_trim = match self.active_view {
+                MainView::Monitor => 3.0,
+                MainView::Plot => 12.0,
+            };
             let panel_height = (ui.available_height() - panel_alignment_trim).max(0.0);
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), panel_height),
