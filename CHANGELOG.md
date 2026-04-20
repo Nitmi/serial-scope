@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.4] - 2026-04-20
+
+### Changed
+- Windows portable release asset is now named `serial-scope-windows-x86_64-portable.exe` to distinguish it clearly from the installer package.
+
 ## [0.2.3] - 2026-04-20
 
 ### Fixed
