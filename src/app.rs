@@ -655,7 +655,8 @@ impl SerialToolApp {
                         self.update_state = UpdateState::UpToDate;
                     }
                     Err(message) => {
-                        self.update_state = UpdateState::Error(message);
+                        let _ = message;
+                        self.update_state = UpdateState::Idle;
                     }
                 },
                 Ok(UpdateEvent::InstallCompleted(result)) => match result {
@@ -668,7 +669,11 @@ impl SerialToolApp {
                 },
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    self.update_state = UpdateState::Error("更新任务通道已断开".to_owned());
+                    if matches!(self.update_state, UpdateState::Checking) {
+                        self.update_state = UpdateState::Idle;
+                    } else {
+                        self.update_state = UpdateState::Error("更新任务通道已断开".to_owned());
+                    }
                     break;
                 }
             }
