@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.3] - 2026-04-20
+
+### Fixed
+- Windows installer packaging now falls back to the default Inno Setup language when the Simplified Chinese language file is unavailable on the build runner.
+
 ## [0.2.2] - 2026-04-20
 
 ### Fixed
