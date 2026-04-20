@@ -220,7 +220,7 @@ fn download_asset(url: &str, download_path: &Path) -> Result<()> {
 fn target_asset_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
-        "serial-scope-windows-x86_64.exe"
+        "serial-scope-windows-x86_64-portable.exe"
     }
     #[cfg(target_os = "linux")]
     {
@@ -276,7 +276,7 @@ mod tests {
     fn target_asset_name_matches_release_packaging() {
         let asset_name = target_asset_name();
         #[cfg(target_os = "windows")]
-        assert_eq!(asset_name, "serial-scope-windows-x86_64.exe");
+        assert_eq!(asset_name, "serial-scope-windows-x86_64-portable.exe");
         #[cfg(target_os = "linux")]
         assert_eq!(asset_name, "serial-scope-linux-x86_64.tar.gz");
         #[cfg(target_os = "macos")]
@@ -299,7 +299,7 @@ mod tests {
                 "notes": "test",
                 "assets": {{
                     "windows-x86_64": {{
-                        "name": "serial-scope-windows-x86_64.exe",
+                        "name": "serial-scope-windows-x86_64-portable.exe",
                         "download_urls": ["https://example.com/windows.exe"]
                     }},
                     "linux-x86_64": {{

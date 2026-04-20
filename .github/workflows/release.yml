@@ -68,7 +68,7 @@ jobs:
           - os: windows-latest
             artifact_name: serial-scope-windows
             package_paths: |
-              dist/serial-scope-windows-x86_64.exe
+              dist/serial-scope-windows-x86_64-portable.exe
               dist/serial-scope-windows-x86_64-setup.exe
           - os: ubuntu-latest
             artifact_name: serial-scope-linux-x86_64
@@ -220,7 +220,7 @@ jobs:
           notes = pathlib.Path("dist/release-notes.md").read_text(encoding="utf-8").strip()
 
           assets = {
-              "windows-x86_64": "serial-scope-windows-x86_64.exe",
+              "windows-x86_64": "serial-scope-windows-x86_64-portable.exe",
               "linux-x86_64": "serial-scope-linux-x86_64.tar.gz",
               "macos": "serial-scope-macos.app.zip",
           }
@@ -254,7 +254,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/release-assets/serial-scope-windows-x86_64.exe
+            dist/release-assets/serial-scope-windows-x86_64-portable.exe
             dist/release-assets/serial-scope-windows-x86_64-setup.exe
             dist/release-assets/serial-scope-linux-x86_64.tar.gz
             dist/release-assets/serial-scope-macos.app.zip

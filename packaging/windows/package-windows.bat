@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 set APP_NAME=serial-scope
-set PORTABLE_NAME=%APP_NAME%-windows-x86_64.exe
+set PORTABLE_NAME=%APP_NAME%-windows-x86_64-portable.exe
 set SETUP_NAME=%APP_NAME%-windows-x86_64-setup.exe
 
 set ROOT_DIR=%~dp0..\..
