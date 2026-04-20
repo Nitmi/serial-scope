@@ -281,8 +281,8 @@ fn update_header_controls(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             state_chip(
                 ui,
                 &format!("发现新版本 v{version}"),
-                Color32::from_rgb(225, 238, 255),
-                ACCENT,
+                Color32::from_rgb(255, 242, 221),
+                Color32::from_rgb(196, 110, 28),
             );
             ui.add_space(8.0);
             if quiet_header_button(ui, "立即更新").clicked() {
