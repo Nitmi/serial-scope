@@ -17,7 +17,11 @@ where iscc >nul 2>nul
 if errorlevel 1 (
     echo Inno Setup compiler not found, skipping installer package.
 ) else (
-    iscc packaging\windows\serial-scope.iss >nul
+    set ISCC_ARGS=
+    if exist "%ProgramFiles(x86)%\Inno Setup 6\Languages\ChineseSimplified.isl" (
+        set ISCC_ARGS=/DMyMessagesFile=compiler:Languages\ChineseSimplified.isl
+    )
+    iscc %ISCC_ARGS% packaging\windows\serial-scope.iss >nul
     if errorlevel 1 (
         popd >nul
         endlocal

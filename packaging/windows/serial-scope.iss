@@ -3,6 +3,9 @@
 #define MyAppVersion GetVersionNumbersString(AddBackslash(SourcePath) + "..\\..\\target\\release\\" + MyAppExeName)
 #define MyAppPublisher "Nitmi"
 #define MyAppURL "https://github.com/Nitmi/serial-scope"
+#ifndef MyMessagesFile
+  #define MyMessagesFile "compiler:Default.isl"
+#endif
 
 [Setup]
 AppId={{E0434A18-5F8C-4F6C-90F0-5A9605B0A3D7}
@@ -28,7 +31,7 @@ SetupIconFile=..\..\assets\app-icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "app"; MessagesFile: "{#MyMessagesFile}"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"; Flags: checkedonce
