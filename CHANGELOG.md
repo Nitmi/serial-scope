@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.5] - 2026-04-20
+
+### Changed
+- The in-app "new version available" indicator now uses a warmer highlight color so it stands out more clearly from the app's primary blue accent.
+
 ## [0.2.4] - 2026-04-20
 
 ### Changed
