@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.2] - 2026-04-20
+
+### Fixed
+- Release workflow no longer becomes invalid when optional Windows code-signing secrets are not configured.
+
 ## [0.2.1] - 2026-04-20
 
 ### Added
