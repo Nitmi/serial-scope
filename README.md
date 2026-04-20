@@ -206,6 +206,8 @@ git push origin v0.2.4
 
 If the matching changelog section is missing, the release workflow will fail instead of publishing incomplete notes.
 
+For the full step-by-step release template, see [docs/release-checklist.md](docs/release-checklist.md).
+
 ## Configuration
 
 The app reads and writes `config.toml` beside the running executable. In portable usage this means the extracted app folder; in the Windows installer build this means the installed app directory under `%LocalAppData%\Programs\Serial Scope`.
