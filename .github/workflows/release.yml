@@ -163,3 +163,97 @@ jobs:
           body: ${{ steps.changelog.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish_latest_manifest:
+    name: Publish latest.json
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract changelog entry
+        id: changelog
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"^## \[{re.escape(version)}\] - .*$\n(.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+          match = pattern.search(text)
+          if not match:
+              raise SystemExit(
+                  f"CHANGELOG.md 中未找到版本 [{version}]，请先补充对应条目后再发布。"
+              )
+
+          body = match.group(1).strip()
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as fh:
+              fh.write("body<<EOF\n")
+              fh.write(body + "\n")
+              fh.write("EOF\n")
+          PY
+
+      - name: Generate latest.json
+        shell: bash
+        run: |
+          mkdir -p dist
+          python - <<'PY'
+          import json
+          import os
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          version = tag.lstrip("v")
+          notes = os.environ["CHANGELOG_BODY"]
+
+          assets = {
+              "windows-x86_64": "serial-scope-windows-x86_64.exe",
+              "linux-x86_64": "serial-scope-linux-x86_64.tar.gz",
+              "macos": "serial-scope-macos.app.zip",
+          }
+
+          def urls(name: str):
+              github_url = f"https://github.com/Nitmi/serial-scope/releases/download/{tag}/{name}"
+              return [
+                  f"https://gh.123778.xyz/serial-scope/releases/download/{tag}/{name}",
+                  github_url,
+                  f"https://gh-proxy.org/{github_url}",
+                  f"https://hk.gh-proxy.org/{github_url}",
+                  f"https://edgeone.gh-proxy.org/{github_url}",
+              ]
+
+          latest = {
+              "version": version,
+              "notes": notes,
+              "assets": {
+                  key: {
+                      "name": value,
+                      "download_urls": urls(value),
+                  }
+                  for key, value in assets.items()
+              },
+          }
+
+          with open("dist/latest.json", "w", encoding="utf-8") as fh:
+              json.dump(latest, fh, ensure_ascii=False, indent=2)
+          PY
+        env:
+          CHANGELOG_BODY: ${{ steps.changelog.outputs.body }}
+
+      - name: Upload latest.json asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/latest.json
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

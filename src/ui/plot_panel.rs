@@ -28,9 +28,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 app.export_plot_csv();
             }
             ui.separator();
-            ui.label(
-                RichText::new(format!("曲线数: {}", app.chart_state.series.len())).strong(),
-            );
+            ui.label(RichText::new(format!("曲线数: {}", app.chart_state.series.len())).strong());
             ui.label(
                 RichText::new("支持 CSV 数字行与 key=value 数字行解析")
                     .italics()
@@ -67,8 +65,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         ui.add_space(6.0);
         let available_size = panel_shell::main_content_size(ui);
         let min_plot_width = 220.0;
-        let max_sidebar_width =
-            (available_size.x - min_plot_width - RESIZE_HANDLE_WIDTH).max(0.0);
+        let max_sidebar_width = (available_size.x - min_plot_width - RESIZE_HANDLE_WIDTH).max(0.0);
         let sidebar_width = app
             .chart_state
             .effective_sidebar_width(available_size.x)

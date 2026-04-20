@@ -19,8 +19,8 @@ use crate::serial::{
     available_port_names, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
     DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialSettings,
 };
-use crate::update::{self, UpdateCheckResult, UpdateEvent, UpdateState};
 use crate::ui::{panel_shell, plot_panel, receive_panel, send_panel, top_bar};
+use crate::update::{self, UpdateCheckResult, UpdateEvent, UpdateState};
 
 const MAX_LOG_LINES: usize = 1_000;
 const MAX_PLOT_POINTS: usize = 2_000;
@@ -381,11 +381,7 @@ impl SerialToolApp {
             return;
         };
 
-        self.export_base_name = stem
-            .strip_suffix(suffix)
-            .unwrap_or(stem)
-            .trim()
-            .to_owned();
+        self.export_base_name = stem.strip_suffix(suffix).unwrap_or(stem).trim().to_owned();
     }
 
     pub fn filtered_receive_records(&self) -> Vec<&ReceiveRecord> {
@@ -715,8 +711,7 @@ impl eframe::App for SerialToolApp {
                 let panel_height = (available_height
                     - panel_shell::MAIN_PANEL_ALIGNMENT_TRIM
                     - SEND_PANEL_TOP_OFFSET)
-                    - SEND_PANEL_HEIGHT_TRIM
-                    .max(0.0);
+                    - SEND_PANEL_HEIGHT_TRIM.max(0.0);
                 ui.allocate_ui_with_layout(
                     egui::vec2(ui.available_width(), panel_height),
                     egui::Layout::top_down(egui::Align::Min),

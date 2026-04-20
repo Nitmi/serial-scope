@@ -53,7 +53,8 @@ fn normalize_for_display(bytes: &[u8]) -> Vec<u8> {
 }
 
 pub fn bytes_to_hex_display(bytes: &[u8]) -> String {
-    bytes.iter()
+    bytes
+        .iter()
         .map(|byte| format!("{byte:02X}"))
         .collect::<Vec<_>>()
         .join(" ")

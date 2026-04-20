@@ -146,8 +146,7 @@ fn friendly_open_port_error(port_name: &str, err: &anyhow::Error) -> String {
         || lower.contains("no such file")
         || lower.contains("not found")
     {
-        "串口当前不可用。"
-            .to_owned()
+        "串口当前不可用。".to_owned()
     } else if lower.contains("invalid parameter")
         || lower.contains("参数错误")
         || lower.contains("invalid input")

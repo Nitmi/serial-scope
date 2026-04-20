@@ -32,7 +32,11 @@ pub fn show_main_panel(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::U
 
     let frame_rect = egui::Rect::from_min_max(
         reserved_rect.min + vec2(MAIN_PANEL_OUTER_MARGIN.left, MAIN_PANEL_OUTER_MARGIN.top),
-        reserved_rect.max - vec2(MAIN_PANEL_OUTER_MARGIN.right, MAIN_PANEL_OUTER_MARGIN.bottom),
+        reserved_rect.max
+            - vec2(
+                MAIN_PANEL_OUTER_MARGIN.right,
+                MAIN_PANEL_OUTER_MARGIN.bottom,
+            ),
     );
 
     ui.painter().rect(
@@ -44,7 +48,11 @@ pub fn show_main_panel(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::U
 
     let inner_rect = egui::Rect::from_min_max(
         frame_rect.min + vec2(MAIN_PANEL_INNER_MARGIN.left, MAIN_PANEL_INNER_MARGIN.top),
-        frame_rect.max - vec2(MAIN_PANEL_INNER_MARGIN.right, MAIN_PANEL_INNER_MARGIN.bottom),
+        frame_rect.max
+            - vec2(
+                MAIN_PANEL_INNER_MARGIN.right,
+                MAIN_PANEL_INNER_MARGIN.bottom,
+            ),
     );
 
     ui.scope_builder(

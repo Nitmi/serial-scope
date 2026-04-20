@@ -90,7 +90,8 @@ pub enum ParitySetting {
 }
 
 impl ParitySetting {
-    pub const ALL: [ParitySetting; 3] = [ParitySetting::None, ParitySetting::Odd, ParitySetting::Even];
+    pub const ALL: [ParitySetting; 3] =
+        [ParitySetting::None, ParitySetting::Odd, ParitySetting::Even];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -160,7 +161,6 @@ pub enum SerialEvent {
 }
 
 pub fn available_port_names() -> Result<Vec<String>> {
-    let ports = serialport::available_ports()
-        .map_err(|err| anyhow!("获取串口列表失败: {err}"))?;
+    let ports = serialport::available_ports().map_err(|err| anyhow!("获取串口列表失败: {err}"))?;
     Ok(ports.into_iter().map(|p| p.port_name).collect())
 }

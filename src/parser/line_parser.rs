@@ -66,8 +66,9 @@ pub fn parse_text_line_with_config(line: &str, config: &ParserConfig) -> Option<
         ParserMode::Auto => parse_key_value_line(trimmed)
             .or_else(|| parse_csv_numbers(trimmed, config))
             .or_else(|| parse_single_csv_number(trimmed, config)),
-        ParserMode::Csv => parse_csv_numbers(trimmed, config)
-            .or_else(|| parse_single_csv_number(trimmed, config)),
+        ParserMode::Csv => {
+            parse_csv_numbers(trimmed, config).or_else(|| parse_single_csv_number(trimmed, config))
+        }
         ParserMode::KeyValue => parse_key_value_line(trimmed),
     }
 }

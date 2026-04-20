@@ -3637,6 +3637,7 @@ dependencies = [
  "self_update",
  "semver",
  "serde",
+ "serde_json",
  "serialport",
  "toml 0.8.23",
  "windows-sys 0.61.2",

@@ -70,7 +70,7 @@ fn initial_viewport_placement() -> ViewportPlacement {
 fn windows_work_area_placement(desired_size: [f32; 2]) -> Option<ViewportPlacement> {
     use windows_sys::Win32::Foundation::{POINT, RECT};
     use windows_sys::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromPoint, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+        GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
