@@ -176,13 +176,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Extract changelog entry
-        id: changelog
         shell: bash
         run: |
+          mkdir -p dist
           python - <<'PY'
-          import os
           import pathlib
           import re
+          import os
 
           version = os.environ["GITHUB_REF_NAME"].lstrip("v")
           text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
@@ -197,11 +197,7 @@ jobs:
               )
 
           body = match.group(1).strip()
-          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
-              fh.write("body<<EOF\n")
-              fh.write(body + "\n")
-              fh.write("EOF\n")
+          pathlib.Path("dist/release-notes.md").write_text(body + "\n", encoding="utf-8")
           PY
 
       - name: Download build artifacts
@@ -217,10 +213,11 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import pathlib
 
           tag = os.environ["GITHUB_REF_NAME"]
           version = tag.lstrip("v")
-          notes = os.environ["CHANGELOG_BODY"]
+          notes = pathlib.Path("dist/release-notes.md").read_text(encoding="utf-8").strip()
 
           assets = {
               "windows-x86_64": "serial-scope-windows-x86_64.exe",
@@ -253,9 +250,6 @@ jobs:
           with open("dist/release-assets/latest.json", "w", encoding="utf-8") as fh:
               json.dump(latest, fh, ensure_ascii=False, indent=2)
           PY
-        env:
-          CHANGELOG_BODY: ${{ steps.changelog.outputs.body }}
-
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -268,6 +262,6 @@ jobs:
           fail_on_unmatched_files: true
           generate_release_notes: false
           append_body: false
-          body: ${{ steps.changelog.outputs.body }}
+          body_path: dist/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
