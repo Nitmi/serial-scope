@@ -63,14 +63,16 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            artifact_name: serial-scope-windows-x86_64
-            package_path: dist/serial-scope-windows-x86_64.exe
+            artifact_name: serial-scope-windows
+            package_paths: |
+              dist/serial-scope-windows-x86_64.exe
+              dist/serial-scope-windows-x86_64-setup.exe
           - os: ubuntu-latest
             artifact_name: serial-scope-linux-x86_64
-            package_path: dist/serial-scope-linux-x86_64.tar.gz
+            package_paths: dist/serial-scope-linux-x86_64.tar.gz
           - os: macos-latest
             artifact_name: serial-scope-macos
-            package_path: dist/serial-scope-macos.app.zip
+            package_paths: dist/serial-scope-macos.app.zip
 
     steps:
       - name: Checkout
@@ -102,10 +104,47 @@ jobs:
       - name: Build release
         run: cargo build --release --locked
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: choco install innosetup --no-progress -y
+
+      - name: Prepare Windows signing certificate
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/') && secrets.WINDOWS_SIGN_CERT_B64 != '' && secrets.WINDOWS_SIGN_CERT_PASSWORD != ''
+        shell: powershell
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "serial-scope-codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WINDOWS_SIGN_CERT_B64))
+          "WINDOWS_SIGN_CERT_PATH=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        env:
+          WINDOWS_SIGN_CERT_B64: ${{ secrets.WINDOWS_SIGN_CERT_B64 }}
+
+      - name: Sign Windows app binary
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/') && secrets.WINDOWS_SIGN_CERT_B64 != '' && secrets.WINDOWS_SIGN_CERT_PASSWORD != ''
+        shell: powershell
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /f $env:WINDOWS_SIGN_CERT_PATH /p $env:WINDOWS_SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "target\release\serial-scope.exe"
+        env:
+          WINDOWS_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}
+
       - name: Package Windows bundle
         if: runner.os == 'Windows'
         shell: cmd
         run: packaging\windows\package-windows.bat
+
+      - name: Sign Windows installer
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/') && secrets.WINDOWS_SIGN_CERT_B64 != '' && secrets.WINDOWS_SIGN_CERT_PASSWORD != ''
+        shell: powershell
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /f $env:WINDOWS_SIGN_CERT_PATH /p $env:WINDOWS_SIGN_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "dist\serial-scope-windows-x86_64-setup.exe"
+        env:
+          WINDOWS_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGN_CERT_PASSWORD }}
 
       - name: Package Linux bundle
         if: runner.os == 'Linux'
@@ -119,53 +158,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.package_path }}
+          path: ${{ matrix.package_paths }}
           if-no-files-found: error
 
-      - name: Extract changelog entry
-        if: startsWith(github.ref, 'refs/tags/')
-        id: changelog
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          import pathlib
-          import re
-
-          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
-          text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
-          pattern = re.compile(
-              rf"^## \[{re.escape(version)}\] - .*$\n(.*?)(?=^## \[|\Z)",
-              re.MULTILINE | re.DOTALL,
-          )
-          match = pattern.search(text)
-          if not match:
-              raise SystemExit(
-                  f"CHANGELOG.md 中未找到版本 [{version}]，请先补充对应条目后再发布。"
-              )
-
-          body = match.group(1).strip()
-          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
-              fh.write("body<<EOF\n")
-              fh.write(body + "\n")
-              fh.write("EOF\n")
-          PY
-
-      - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ matrix.package_path }}
-          fail_on_unmatched_files: true
-          generate_release_notes: false
-          append_body: false
-          body: ${{ steps.changelog.outputs.body }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  publish_latest_manifest:
-    name: Publish latest.json
+  publish_release:
+    name: Publish release
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
@@ -203,10 +200,16 @@ jobs:
               fh.write("EOF\n")
           PY
 
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/release-assets
+          merge-multiple: true
+
       - name: Generate latest.json
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p dist/release-assets
           python - <<'PY'
           import json
           import os
@@ -243,17 +246,24 @@ jobs:
               },
           }
 
-          with open("dist/latest.json", "w", encoding="utf-8") as fh:
+          with open("dist/release-assets/latest.json", "w", encoding="utf-8") as fh:
               json.dump(latest, fh, ensure_ascii=False, indent=2)
           PY
         env:
           CHANGELOG_BODY: ${{ steps.changelog.outputs.body }}
 
-      - name: Upload latest.json asset
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/latest.json
+          files: |
+            dist/release-assets/serial-scope-windows-x86_64.exe
+            dist/release-assets/serial-scope-windows-x86_64-setup.exe
+            dist/release-assets/serial-scope-linux-x86_64.tar.gz
+            dist/release-assets/serial-scope-macos.app.zip
+            dist/release-assets/latest.json
           fail_on_unmatched_files: true
           generate_release_notes: false
+          append_body: false
+          body: ${{ steps.changelog.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

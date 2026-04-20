@@ -116,12 +116,24 @@ Generated binaries:
 - Windows builds still embed `assets/app-icon.ico` into `serial-scope.exe` through `build.rs`
 - Release archives are intentionally minimal portable bundles:
   - Windows release asset is the raw `serial-scope-windows-x86_64.exe` binary
+  - Windows also ships an installer asset: `serial-scope-windows-x86_64-setup.exe`
   - Linux tar.gz contains only `serial-scope`
   - macOS zip contains only `Serial Scope.app`
 - Local packaging helpers:
   - Windows: `packaging\windows\package-windows.bat`
   - Linux: `bash packaging/linux/package-linux.sh`
   - macOS: `bash packaging/macos/package-macos.sh`
+
+For beginner-friendly Windows usage, prefer the installer build:
+
+- default install path: `%LocalAppData%\Programs\Serial Scope`
+- creates a desktop shortcut
+- keeps the portable `.exe` release available for users who prefer no-install mode
+
+Windows SmartScreen warnings cannot be fully eliminated by packaging changes alone. The practical fix is code signing. This repository now supports optional signing in GitHub Actions when these secrets are configured:
+
+- `WINDOWS_SIGN_CERT_B64`
+- `WINDOWS_SIGN_CERT_PASSWORD`
 
 ## GitHub Actions Release
 
@@ -137,6 +149,7 @@ This repository includes:
 - `.github/workflows/release.yml`
   - runs on `v*` tags and `workflow_dispatch`
   - validates formatting, tests, and clippy before release packaging
+  - creates the GitHub Release once after all platform artifacts are ready, so the changelog body is applied consistently
 
 On Linux CI, `libudev-dev` is installed because the `serialport` dependency uses `libudev` on Linux.
 The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt into the newer GitHub Actions JavaScript runtime and avoid the Node.js 20 deprecation warning.
@@ -147,6 +160,7 @@ The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt into the
 - Outputs:
   - workflow artifacts for each platform
   - GitHub Release assets automatically uploaded when the workflow is triggered by a tag
+  - `latest.json` manifest for in-app update checks
 
 Example:
 

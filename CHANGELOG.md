@@ -7,10 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Windows installer packaging with desktop shortcut creation.
+- Optional Windows code-signing support in the release workflow.
 
 ### Changed
+- GitHub Release publishing now uploads all artifacts and changelog notes in one final release step.
 
 ### Fixed
+- Release changelog publication on GitHub now uses a single release creation step instead of per-matrix uploads.
 
 ## [0.2.0] - 2026-04-20
 
