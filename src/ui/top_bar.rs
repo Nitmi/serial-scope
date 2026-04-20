@@ -25,7 +25,15 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                 .inner_margin(egui::Margin::same(12.0))
                 .show(ui, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.heading(RichText::new("串口调试助手").color(INK));
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::BOTTOM), |ui| {
+                            ui.heading(RichText::new("串口调试助手").color(INK));
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                                    .size(14.0)
+                                    .color(MUTED),
+                            );
+                        });
                         ui.add_space(12.0);
                         status_chip(ui, app);
                         ui.add_space(18.0);
