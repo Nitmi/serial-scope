@@ -2,6 +2,7 @@ use eframe::egui::{self, Align2, Color32, ComboBox, FontId, RichText, Sense, Str
 
 use crate::app::SerialToolApp;
 use crate::serial::{DataBitsSetting, ParitySetting, StopBitsSetting};
+use crate::update::UpdateState;
 
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
 const MUTED: Color32 = Color32::from_rgb(108, 116, 126);
@@ -35,6 +36,7 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         metric_text(ui, "TX 速率", format!("{:.1} B/s", app.tx_rate_bps));
                         ui.add_space(12.0);
                         metric_text(ui, "RX 速率", format!("{:.1} B/s", app.rx_rate_bps));
+                        update_header_controls(ui, app);
                     });
 
                     ui.add_space(10.0);
@@ -260,6 +262,74 @@ fn labeled_inline(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut
         ui.label(RichText::new(label).small().color(MUTED));
         add_contents(ui);
     });
+}
+
+fn update_header_controls(ui: &mut egui::Ui, app: &mut SerialToolApp) {
+    ui.add_space(12.0);
+
+    match &app.update_state {
+        UpdateState::Idle | UpdateState::Checking | UpdateState::UpToDate => {}
+        UpdateState::Available { version, .. } => {
+            state_chip(
+                ui,
+                &format!("发现新版本 v{version}"),
+                Color32::from_rgb(225, 238, 255),
+                ACCENT,
+            );
+            ui.add_space(8.0);
+            if quiet_header_button(ui, "立即更新").clicked() {
+                app.trigger_update_install();
+            }
+        }
+        UpdateState::Downloading { version } => {
+            state_chip(
+                ui,
+                &format!("正在更新到 v{version}..."),
+                Color32::from_rgb(233, 241, 250),
+                Color32::from_rgb(87, 118, 152),
+            );
+        }
+        UpdateState::ReadyToRestart { version } => {
+            state_chip(
+                ui,
+                &format!("已更新到 v{version}"),
+                Color32::from_rgb(224, 241, 230),
+                Color32::from_rgb(59, 130, 90),
+            );
+            ui.add_space(8.0);
+            if quiet_header_button(ui, "立即重启").clicked() {
+                app.restart_after_update();
+            }
+        }
+        UpdateState::Error(message) => {
+            state_chip(
+                ui,
+                message,
+                Color32::from_rgb(249, 232, 232),
+                Color32::from_rgb(184, 82, 82),
+            );
+        }
+    }
+}
+
+fn quiet_header_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(RichText::new(label).color(INK))
+            .fill(Color32::from_rgb(248, 251, 255))
+            .stroke(Stroke::new(1.0, Color32::from_rgb(214, 224, 236)))
+            .rounding(egui::Rounding::same(CHIP_RADIUS)),
+    )
+}
+
+fn state_chip(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) {
+    egui::Frame::none()
+        .fill(fill)
+        .stroke(Stroke::new(1.0, Color32::TRANSPARENT))
+        .rounding(egui::Rounding::same(CHIP_RADIUS))
+        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).color(ink).strong());
+        });
 }
 
 fn enum_combo_data_bits(ui: &mut egui::Ui, app: &mut SerialToolApp) {

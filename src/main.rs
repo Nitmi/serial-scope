@@ -5,6 +5,7 @@ mod config;
 mod parser;
 mod serial;
 mod ui;
+mod update;
 
 use std::fs;
 
@@ -16,11 +17,17 @@ use fontdb::{Database, Family, Query};
 
 fn main() -> eframe::Result<()> {
     let config = AppConfig::load_or_default();
+    let viewport_placement = initial_viewport_placement();
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size([1280.0, 820.0])
+        .with_inner_size(viewport_placement.inner_size)
         .with_min_inner_size([960.0, 640.0])
+        .with_clamp_size_to_monitor_size(true)
         .with_title("Serial Scope");
+
+    if let Some(position) = viewport_placement.position {
+        viewport = viewport.with_position(position);
+    }
 
     if let Some(icon) = load_app_icon() {
         viewport = viewport.with_icon(icon);
@@ -28,7 +35,6 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport,
-        centered: true,
         ..Default::default()
     };
 
@@ -41,6 +47,69 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(SerialToolApp::new(config)))
         }),
     )
+}
+
+struct ViewportPlacement {
+    inner_size: [f32; 2],
+    position: Option<[f32; 2]>,
+}
+
+fn initial_viewport_placement() -> ViewportPlacement {
+    #[cfg(target_os = "windows")]
+    if let Some(placement) = windows_work_area_placement([1280.0, 800.0]) {
+        return placement;
+    }
+
+    ViewportPlacement {
+        inner_size: [1280.0, 800.0],
+        position: None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn windows_work_area_placement(desired_size: [f32; 2]) -> Option<ViewportPlacement> {
+    use windows_sys::Win32::Foundation::{POINT, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromPoint, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    unsafe {
+        let mut cursor = POINT { x: 0, y: 0 };
+        if GetCursorPos(&mut cursor) == 0 {
+            return None;
+        }
+
+        let monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
+        if monitor.is_null() {
+            return None;
+        }
+
+        let mut monitor_info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            rcMonitor: RECT::default(),
+            rcWork: RECT::default(),
+            dwFlags: 0,
+        };
+        if GetMonitorInfoW(monitor, &mut monitor_info as *mut MONITORINFO) == 0 {
+            return None;
+        }
+
+        let work_area = monitor_info.rcWork;
+        let work_width = (work_area.right - work_area.left).max(1) as f32;
+        let work_height = (work_area.bottom - work_area.top).max(1) as f32;
+
+        let inner_width = desired_size[0].min(work_width);
+        let inner_height = desired_size[1].min(work_height);
+
+        let x = work_area.left as f32 + (work_width - inner_width) * 0.5;
+        let y = work_area.top as f32 + (work_height - inner_height) * 0.5;
+
+        Some(ViewportPlacement {
+            inner_size: [inner_width, inner_height],
+            position: Some([x, y]),
+        })
+    }
 }
 
 fn configure_fonts(ctx: &egui::Context) {

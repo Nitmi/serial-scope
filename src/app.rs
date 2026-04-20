@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use chrono::Local;
-use crossbeam_channel::{Receiver, TryRecvError};
+use crossbeam_channel::{unbounded, Receiver, Sender, TryRecvError};
 use eframe::egui::{self, TextStyle};
 use egui_plot::PlotBounds;
 use rfd::FileDialog;
@@ -18,6 +19,7 @@ use crate::serial::{
     available_port_names, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
     DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialSettings,
 };
+use crate::update::{self, UpdateCheckResult, UpdateEvent, UpdateState};
 use crate::ui::{panel_shell, plot_panel, receive_panel, send_panel, top_bar};
 
 const MAX_LOG_LINES: usize = 1_000;
@@ -26,6 +28,7 @@ const GUI_REFRESH_MS: u64 = 30;
 const PORT_REFRESH_MS: u64 = 1_500;
 const MAX_LINE_PREVIEW_CHARS: usize = 120;
 const MAX_SEND_HISTORY: usize = 20;
+const UPDATE_CHECK_DELAY_MS: u64 = 2_000;
 
 pub struct SerialToolApp {
     pub config: AppConfig,
@@ -66,6 +69,10 @@ pub struct SerialToolApp {
     pub pending_receive_count: usize,
     pub export_base_name: String,
     pub protocol_assistant: ProtocolAssistantConfig,
+    pub update_state: UpdateState,
+    update_events_tx: Sender<UpdateEvent>,
+    update_events: Receiver<UpdateEvent>,
+    next_update_check_at: Option<Instant>,
 }
 
 impl SerialToolApp {
@@ -77,6 +84,7 @@ impl SerialToolApp {
         let protocol_assistant = config.protocol_assistant.clone();
         let receive_filter = config.receive_filter.clone();
         let highlight_keywords = config.highlight_keywords.clone();
+        let (update_events_tx, update_events) = unbounded();
         let mut app = Self {
             port_names: Vec::new(),
             status_text: "未连接".to_owned(),
@@ -113,6 +121,12 @@ impl SerialToolApp {
             pending_receive_count: 0,
             export_base_name: format!("serial_log_{}", Local::now().format("%Y%m%d_%H%M%S")),
             protocol_assistant,
+            update_state: UpdateState::Idle,
+            update_events_tx,
+            update_events,
+            next_update_check_at: Some(
+                Instant::now() + Duration::from_millis(UPDATE_CHECK_DELAY_MS),
+            ),
             config,
             serial_manager,
             serial_events,
@@ -591,13 +605,94 @@ impl SerialToolApp {
         self.last_error = Some(message.clone());
         self.status_text = message;
     }
+
+    pub fn trigger_update_check(&mut self) {
+        if matches!(
+            self.update_state,
+            UpdateState::Checking | UpdateState::Downloading { .. }
+        ) {
+            return;
+        }
+
+        self.update_state = UpdateState::Checking;
+        self.next_update_check_at = None;
+        update::spawn_check(self.update_events_tx.clone());
+    }
+
+    pub fn trigger_update_install(&mut self) {
+        let version = match self.update_state.clone() {
+            UpdateState::Available { version, .. } => version,
+            _ => return,
+        };
+
+        self.update_state = UpdateState::Downloading {
+            version: version.clone(),
+        };
+        update::spawn_install(version, self.update_events_tx.clone());
+    }
+
+    pub fn restart_after_update(&mut self) {
+        let current_exe = match std::env::current_exe() {
+            Ok(path) => path,
+            Err(err) => {
+                self.update_state = UpdateState::Error(format!("重启失败: {err}"));
+                return;
+            }
+        };
+
+        if let Err(err) = Command::new(&current_exe).spawn() {
+            self.update_state = UpdateState::Error(format!("重启失败: {err}"));
+            return;
+        }
+
+        std::process::exit(0);
+    }
+
+    fn process_update_events(&mut self) {
+        loop {
+            match self.update_events.try_recv() {
+                Ok(UpdateEvent::CheckCompleted(result)) => match result {
+                    Ok(UpdateCheckResult::Available { version, notes }) => {
+                        self.update_state = UpdateState::Available { version, notes };
+                    }
+                    Ok(UpdateCheckResult::UpToDate) => {
+                        self.update_state = UpdateState::UpToDate;
+                    }
+                    Err(message) => {
+                        self.update_state = UpdateState::Error(message);
+                    }
+                },
+                Ok(UpdateEvent::InstallCompleted(result)) => match result {
+                    Ok(version) => {
+                        self.update_state = UpdateState::ReadyToRestart { version };
+                    }
+                    Err(message) => {
+                        self.update_state = UpdateState::Error(message);
+                    }
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.update_state = UpdateState::Error("更新任务通道已断开".to_owned());
+                    break;
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for SerialToolApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.process_serial_events();
+        self.process_update_events();
         self.handle_auto_send();
         self.update_transfer_rates();
+
+        if self
+            .next_update_check_at
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            self.trigger_update_check();
+        }
 
         if !self.is_connected
             && self.last_refresh.elapsed() >= Duration::from_millis(PORT_REFRESH_MS)

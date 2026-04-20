@@ -12,7 +12,16 @@ eframe = { version = "0.29", default-features = true }
 egui = "0.29"
 egui_plot = "0.29"
 hex = "0.4"
+semver = "1"
 serde = { version = "1", features = ["derive"] }
+self_update = { version = "0.43", default-features = false, features = [
+  "reqwest",
+  "archive-tar",
+  "archive-zip",
+  "compression-flate2",
+  "compression-zip-deflate",
+  "rustls"
+] }
 serialport = "4"
 toml = "0.8"
 fontdb = "0.16"
@@ -21,3 +30,10 @@ rfd = "0.15"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging"
+] }
