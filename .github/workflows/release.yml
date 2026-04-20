@@ -250,18 +250,28 @@ jobs:
           with open("dist/release-assets/latest.json", "w", encoding="utf-8") as fh:
               json.dump(latest, fh, ensure_ascii=False, indent=2)
           PY
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/release-assets/serial-scope-windows-x86_64-portable.exe
-            dist/release-assets/serial-scope-windows-x86_64-setup.exe
-            dist/release-assets/serial-scope-linux-x86_64.tar.gz
-            dist/release-assets/serial-scope-macos.app.zip
-            dist/release-assets/latest.json
-          fail_on_unmatched_files: true
-          generate_release_notes: false
-          append_body: false
-          body_path: dist/release-notes.md
+      - name: Create or update GitHub release
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          assets=(
+            "dist/release-assets/serial-scope-windows-x86_64-portable.exe"
+            "dist/release-assets/serial-scope-windows-x86_64-setup.exe"
+            "dist/release-assets/serial-scope-linux-x86_64.tar.gz"
+            "dist/release-assets/serial-scope-macos.app.zip"
+            "dist/release-assets/latest.json"
+          )
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "$tag" \
+              --notes-file "dist/release-notes.md"
+          else
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes-file "dist/release-notes.md"
+          fi
+
+          gh release upload "$tag" "${assets[@]}" --clobber
