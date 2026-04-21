@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use eframe::egui::{self, vec2, Color32, RichText, Slider, Stroke};
 use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
@@ -10,6 +12,20 @@ const MUTED: Color32 = Color32::from_rgb(112, 120, 130);
 const SOFT_RADIUS: f32 = 9.0;
 const SEGMENT_OUTER_RADIUS: f32 = 18.0;
 const SEGMENT_INNER_RADIUS: f32 = 13.0;
+const PALETTE: [Color32; 12] = [
+    Color32::from_rgb(223, 87, 83),
+    Color32::from_rgb(74, 121, 214),
+    Color32::from_rgb(79, 171, 113),
+    Color32::from_rgb(235, 154, 52),
+    Color32::from_rgb(145, 96, 214),
+    Color32::from_rgb(48, 176, 176),
+    Color32::from_rgb(214, 92, 145),
+    Color32::from_rgb(143, 173, 58),
+    Color32::from_rgb(95, 104, 196),
+    Color32::from_rgb(176, 112, 72),
+    Color32::from_rgb(44, 155, 216),
+    Color32::from_rgb(206, 136, 38),
+];
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     panel_shell::show_main_panel(ui, |ui| {
@@ -72,6 +88,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             .min(max_sidebar_width);
         let plot_height = available_size.y.max(0.0);
         let plot_width = (available_size.x - sidebar_width - RESIZE_HANDLE_WIDTH).max(0.0);
+        let visible_keys = app.chart_state.visible_series_keys();
+        let visible_colors = visible_series_colors(&visible_keys);
 
         ui.allocate_ui_with_layout(
             available_size,
@@ -119,14 +137,19 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                 plot_ui.set_plot_bounds(bounds);
                             }
 
-                            for key in app.chart_state.visible_series_keys() {
-                                if let Some(values) = app.chart_state.series.get(&key) {
+                            for key in &visible_keys {
+                                if let Some(values) = app.chart_state.series.get(key.as_str()) {
                                     let points =
                                         PlotPoints::from_iter(values.iter().map(|p| [p[0], p[1]]));
                                     plot_ui.line(
                                         Line::new(points)
                                             .name(app.chart_state.display_name(&key))
-                                            .color(series_color(&key)),
+                                            .color(
+                                                visible_colors
+                                                    .get(key)
+                                                    .copied()
+                                                    .unwrap_or_else(|| series_color(key)),
+                                            ),
                                     );
                                 }
                             }
@@ -246,7 +269,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                         ui.end_row();
 
                                                         for name in names {
-                                                            let color = series_color(&name);
+                                                            let color = if visible_colors
+                                                                .contains_key(&name)
+                                                            {
+                                                                visible_colors
+                                                                    .get(&name)
+                                                                    .copied()
+                                                                    .unwrap_or_else(|| {
+                                                                        series_color(&name)
+                                                                    })
+                                                            } else {
+                                                                series_color(&name)
+                                                            };
                                                             let mut visible =
                                                                 app.chart_state.visible.contains(&name);
                                                             let stats = app
@@ -520,20 +554,102 @@ fn segmented_view_button(
 }
 
 fn series_color(name: &str) -> Color32 {
-    const PALETTE: [Color32; 8] = [
-        Color32::from_rgb(230, 92, 92),
-        Color32::from_rgb(82, 137, 230),
-        Color32::from_rgb(165, 204, 84),
-        Color32::from_rgb(245, 166, 35),
-        Color32::from_rgb(66, 196, 181),
-        Color32::from_rgb(190, 120, 230),
-        Color32::from_rgb(240, 110, 170),
-        Color32::from_rgb(130, 210, 255),
-    ];
+    PALETTE[preferred_series_color_index(name)]
+}
 
+fn preferred_series_color_index(name: &str) -> usize {
     let mut hash = 0usize;
     for byte in name.bytes() {
         hash = hash.wrapping_mul(31).wrapping_add(byte as usize);
     }
-    PALETTE[hash % PALETTE.len()]
+    hash % PALETTE.len()
+}
+
+fn visible_series_colors(keys: &[String]) -> BTreeMap<String, Color32> {
+    let mut assignments = BTreeMap::new();
+    let mut used = vec![false; PALETTE.len()];
+    let mut preferred = keys
+        .iter()
+        .cloned()
+        .map(|key| (preferred_series_color_index(&key), key))
+        .collect::<Vec<_>>();
+    preferred.sort_by(|(left_index, left_key), (right_index, right_key)| {
+        left_index
+            .cmp(right_index)
+            .then_with(|| left_key.cmp(right_key))
+    });
+
+    for (preferred_index, key) in preferred {
+        let mut assigned_index = preferred_index;
+        for offset in 0..PALETTE.len() {
+            let candidate = (preferred_index + offset) % PALETTE.len();
+            if !used[candidate] {
+                assigned_index = candidate;
+                used[candidate] = true;
+                break;
+            }
+        }
+        assignments.insert(key, PALETTE[assigned_index]);
+    }
+
+    assignments
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{preferred_series_color_index, visible_series_colors, PALETTE};
+
+    #[test]
+    fn visible_series_colors_avoids_collisions_within_palette_size() {
+        let keys = vec![
+            "ch1".to_owned(),
+            "ch2".to_owned(),
+            "ch3".to_owned(),
+            "temp".to_owned(),
+            "voltage".to_owned(),
+        ];
+        let colors = visible_series_colors(&keys);
+        let unique_count = colors
+            .values()
+            .map(|color| color.to_array())
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+
+        assert_eq!(colors.len(), keys.len());
+        assert_eq!(unique_count, keys.len());
+    }
+
+    #[test]
+    fn visible_series_colors_resolves_same_preferred_slot() {
+        let mut left = None;
+        let mut right = None;
+
+        'outer: for index in 0..256 {
+            let candidate_left = format!("series_{index}");
+            let left_preferred = preferred_series_color_index(&candidate_left);
+            for next in (index + 1)..256 {
+                let candidate_right = format!("series_{next}");
+                if preferred_series_color_index(&candidate_right) == left_preferred {
+                    left = Some(candidate_left);
+                    right = Some(candidate_right);
+                    break 'outer;
+                }
+            }
+        }
+
+        let keys = vec![left.unwrap(), right.unwrap()];
+        let colors = visible_series_colors(&keys);
+
+        assert_ne!(colors.get(&keys[0]), colors.get(&keys[1]));
+    }
+
+    #[test]
+    fn visible_series_colors_prefers_hash_selected_color_when_available() {
+        let keys = vec!["alpha".to_owned()];
+        let colors = visible_series_colors(&keys);
+        let color = colors.get("alpha").copied().unwrap();
+        let palette_index = preferred_series_color_index("alpha");
+
+        assert_eq!(color, PALETTE[palette_index]);
+    }
 }
