@@ -154,7 +154,11 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                                 ),
                                 egui::Layout::left_to_right(egui::Align::Center),
                                 |ui| {
-                                    error_card(ui, error);
+                                    error_card(
+                                        ui,
+                                        error,
+                                        (band_response.response.rect.height() - 24.0).max(0.0),
+                                    );
                                 },
                             );
                         }
@@ -185,15 +189,31 @@ fn primary_band() -> egui::Frame {
         .outer_margin(egui::Margin::symmetric(0.0, 2.0))
 }
 
-fn error_card(ui: &mut egui::Ui, error: &str) {
-    egui::Frame::none()
-        .fill(Color32::from_rgb(249, 232, 232))
-        .stroke(Stroke::new(1.0, Color32::from_rgb(235, 198, 198)))
-        .rounding(egui::Rounding::same(SOFT_RADIUS))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
-        .show(ui, |ui| {
-            ui.label(RichText::new(error).color(Color32::from_rgb(184, 82, 82)));
-        });
+fn error_card(ui: &mut egui::Ui, error: &str, target_height: f32) {
+    let fill = Color32::from_rgb(249, 232, 232);
+    let stroke = Stroke::new(1.0, Color32::from_rgb(235, 198, 198));
+    let ink = Color32::from_rgb(184, 82, 82);
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
+    let horizontal_padding = 12.0;
+    let galley = ui
+        .painter()
+        .layout_no_wrap(error.to_owned(), font_id.clone(), ink);
+    let desired_width = (galley.size().x + horizontal_padding * 2.0).min(ui.available_width());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(desired_width.max(120.0), target_height),
+        Sense::hover(),
+    );
+
+    ui.painter()
+        .rect(rect, egui::Rounding::same(SOFT_RADIUS), fill, stroke);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        ui.with_layout(
+            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+            |ui| {
+                ui.label(RichText::new(error).color(ink));
+            },
+        );
+    });
 }
 
 fn centered_action_button(
