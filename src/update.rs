@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -20,6 +20,9 @@ const LATEST_JSON_URLS: &[&str] = &[
     "https://hk.gh-proxy.org/https://github.com/Nitmi/serial-scope/releases/latest/download/latest.json",
     "https://edgeone.gh-proxy.org/https://github.com/Nitmi/serial-scope/releases/latest/download/latest.json",
 ];
+#[cfg(target_os = "windows")]
+const WINDOWS_SELF_REPLACE_SUFFIXES: &[&str] =
+    &[".__selfdelete__.exe", ".__relocated__.exe", ".__temp__.exe"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateState {
@@ -68,6 +71,13 @@ pub fn spawn_install(version: String, sender: Sender<UpdateEvent>) {
             .map_err(|err| format!("更新失败: {err}"));
         let _ = sender.send(UpdateEvent::InstallCompleted(result));
     });
+}
+
+pub fn cleanup_stale_update_artifacts() {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = cleanup_stale_windows_self_replace_artifacts();
+    }
 }
 
 fn check_for_update() -> Result<UpdateCheckResult> {
@@ -130,6 +140,57 @@ fn extract_executable(download_path: &Path, tmp_dir: &Path) -> Result<PathBuf> {
 
 fn current_version() -> Result<Version> {
     Version::parse(env!("CARGO_PKG_VERSION")).context("解析当前版本号失败")
+}
+
+#[cfg(target_os = "windows")]
+fn cleanup_stale_windows_self_replace_artifacts() -> Result<()> {
+    let current_exe = std::env::current_exe().context("定位当前程序失败")?;
+    let parent = current_exe
+        .parent()
+        .ok_or_else(|| anyhow!("当前程序没有上级目录"))?;
+    let stem = current_exe
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| anyhow!("当前程序文件名无效"))?;
+
+    for path in stale_windows_self_replace_paths(parent, stem)? {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {}
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn stale_windows_self_replace_paths(dir: &Path, exe_stem: &str) -> Result<Vec<PathBuf>> {
+    let prefix = format!(".{exe_stem}.");
+    let mut paths = Vec::new();
+
+    for entry in fs::read_dir(dir).with_context(|| format!("读取目录失败: {}", dir.display()))?
+    {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+
+        if file_name.starts_with(&prefix)
+            && WINDOWS_SELF_REPLACE_SUFFIXES
+                .iter()
+                .any(|suffix| file_name.ends_with(suffix))
+        {
+            paths.push(entry.path());
+        }
+    }
+
+    Ok(paths)
 }
 
 fn latest_stable_release() -> Result<ResolvedRelease> {
@@ -271,6 +332,10 @@ struct ResolvedRelease {
 #[cfg(test)]
 mod tests {
     use super::{current_target_asset_key, resolve_release, target_asset_name, LATEST_JSON_URLS};
+    #[cfg(target_os = "windows")]
+    use std::fs;
+    #[cfg(target_os = "windows")]
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn target_asset_name_matches_release_packaging() {
@@ -318,5 +383,48 @@ mod tests {
         let release = resolve_release(manifest).unwrap();
         assert_eq!(release.asset.name, target_asset_name());
         assert!(!current_target_asset_key().is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn stale_self_replace_cleanup_only_targets_known_temp_files() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("serial-scope-cleanup-test-{unique}"));
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(
+            dir.join(".serial-scope.abc.__relocated__.exe"),
+            b"old relocated",
+        )
+        .unwrap();
+        fs::write(
+            dir.join(".serial-scope.def.__selfdelete__.exe"),
+            b"old selfdelete",
+        )
+        .unwrap();
+        fs::write(dir.join(".serial-scope.ghi.__temp__.exe"), b"old temp").unwrap();
+        fs::write(dir.join(".serial-scope.keep.exe"), b"keep").unwrap();
+        fs::write(dir.join("serial-scope.exe"), b"keep").unwrap();
+
+        let paths = super::stale_windows_self_replace_paths(&dir, "serial-scope").unwrap();
+        let mut names = paths
+            .iter()
+            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+
+        assert_eq!(
+            names,
+            vec![
+                ".serial-scope.abc.__relocated__.exe",
+                ".serial-scope.def.__selfdelete__.exe",
+                ".serial-scope.ghi.__temp__.exe",
+            ]
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

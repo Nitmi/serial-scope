@@ -14,6 +14,7 @@ use egui::{FontData, FontDefinitions, FontFamily};
 use fontdb::{Database, Family, Query};
 
 fn main() -> eframe::Result<()> {
+    update::cleanup_stale_update_artifacts();
     let config = AppConfig::load_or_default();
     let viewport_placement = initial_viewport_placement();
 
