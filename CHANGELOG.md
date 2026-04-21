@@ -12,6 +12,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.7] - 2026-04-21
+
+### Fixed
+- Windows startup now cleans stale self-update temporary executables left behind by previous `self-replace` operations in the install directory.
+- The serial open failure banner height is now visually aligned more closely with the serial control card beside it.
+- The GitHub release workflow now extracts the matching changelog section body correctly instead of publishing empty release notes.
+
 ## [0.2.6] - 2026-04-21
 
 ### Fixed
