@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.8] - 2026-04-21
+
+### Changed
+- The send panel now has a tighter maximum width, and its main editor plus HEX prefix/suffix fields adapt more cleanly within the available panel space.
+
+### Fixed
+- Release publishing now purges the gh.123778.xyz CDN cache directly in the main release workflow instead of depending on a separately triggered release event.
+
 ## [0.2.7] - 2026-04-21
 
 ### Fixed
