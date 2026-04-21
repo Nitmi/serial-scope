@@ -1,10 +1,6 @@
 name: purge gh.123778 release cache
 
 on:
-  release:
-    types:
-      - published
-      - edited
   workflow_dispatch:
     inputs:
       tag:
@@ -28,11 +24,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "release" ]]; then
-            tag="${{ github.event.release.tag_name }}"
-          else
-            tag="${{ inputs.tag }}"
-          fi
+          tag="${{ inputs.tag }}"
 
           if [[ -z "${tag}" ]]; then
             echo "No release tag was provided."

@@ -288,3 +288,70 @@ jobs:
           fi
 
           gh release upload "$tag" "${assets[@]}" --clobber
+
+  purge_release_cache:
+    name: Purge gh.123778 release cache
+    needs: publish_release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    env:
+      CDN_RELEASE_BASE_URL: https://gh.123778.xyz/serial-scope/releases
+
+    steps:
+      - name: Build purge URL list
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          base = os.environ["CDN_RELEASE_BASE_URL"].rstrip("/")
+
+          assets = [
+              "latest.json",
+              "serial-scope-windows-x86_64-portable.exe",
+              "serial-scope-windows-x86_64-setup.exe",
+              "serial-scope-linux-x86_64.tar.gz",
+              "serial-scope-macos.app.zip",
+          ]
+
+          urls = [f"{base}/latest/download/latest.json"]
+          urls.extend(f"{base}/download/{tag}/{asset}" for asset in assets)
+
+          Path("purge-payload.json").write_text(
+              json.dumps({"files": urls}, ensure_ascii=False),
+              encoding="utf-8",
+          )
+
+          print(f"Prepared {len(urls)} purge URLs for {tag}.")
+          for url in urls:
+              print(url)
+          PY
+
+      - name: Purge Cloudflare cache
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+            echo "CLOUDFLARE_API_TOKEN is not set."
+            exit 1
+          fi
+
+          if [[ -z "${CLOUDFLARE_ZONE_ID:-}" ]]; then
+            echo "CLOUDFLARE_ZONE_ID is not set."
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            -X POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data @purge-payload.json
