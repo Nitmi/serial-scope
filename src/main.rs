@@ -7,8 +7,6 @@ mod serial;
 mod ui;
 mod update;
 
-use std::fs;
-
 use app::SerialToolApp;
 use config::AppConfig;
 use eframe::egui;
@@ -225,8 +223,8 @@ fn configure_theme(ctx: &egui::Context) {
 }
 
 fn load_app_icon() -> Option<egui::IconData> {
-    let bytes = fs::read("assets/app-icon.png").ok()?;
-    let image = image::load_from_memory(&bytes).ok()?.into_rgba8();
+    let bytes = include_bytes!("../assets/app-icon.png");
+    let image = image::load_from_memory(bytes).ok()?.into_rgba8();
     let (width, height) = image.dimensions();
 
     Some(egui::IconData {
