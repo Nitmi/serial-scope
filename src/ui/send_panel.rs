@@ -39,7 +39,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
         section_frame().show(ui, |ui| {
             ui.label(RichText::new("发送内容").small().color(MUTED));
             ui.add_space(4.0);
-            ui.add(
+            let editor_size = egui::vec2(ui.available_width(), 200.0);
+            ui.add_sized(
+                editor_size,
                 egui::TextEdit::multiline(&mut app.send_input)
                     .desired_rows(10)
                     .lock_focus(true)
@@ -86,10 +88,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label("前缀 HEX");
+                    let input_width = ui.available_width().max(140.0);
                     if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut app.protocol_assistant.prefix_hex)
-                                .desired_width(200.0),
+                        .add_sized(
+                            egui::vec2(input_width, 0.0),
+                            egui::TextEdit::singleline(&mut app.protocol_assistant.prefix_hex),
                         )
                         .changed()
                     {
@@ -98,10 +101,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.label("后缀 HEX");
+                    let input_width = ui.available_width().max(140.0);
                     if ui
-                        .add(
-                            egui::TextEdit::singleline(&mut app.protocol_assistant.suffix_hex)
-                                .desired_width(200.0),
+                        .add_sized(
+                            egui::vec2(input_width, 0.0),
+                            egui::TextEdit::singleline(&mut app.protocol_assistant.suffix_hex),
                         )
                         .changed()
                     {

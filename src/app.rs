@@ -708,6 +708,7 @@ impl eframe::App for SerialToolApp {
             .resizable(true)
             .default_width(372.0)
             .min_width(320.0)
+            .max_width(440.0)
             .show(ctx, |ui| {
                 const SEND_PANEL_TOP_OFFSET: f32 = 6.0;
                 const SEND_PANEL_HEIGHT_TRIM: f32 = 6.0;
