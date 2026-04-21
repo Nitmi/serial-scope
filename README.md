@@ -1,6 +1,6 @@
 # serial-scope
 
-Current version: `0.2.5`
+Current version: `0.2.6`
 
 `serial-scope` is a cross-platform Rust serial debugging tool built with `eframe + egui`, targeting Windows and Fedora Linux. It supports asynchronous serial communication, ASCII/HEX send and display modes, text line parsing, real-time plotting, quick commands, auto-send, protocol helpers, and local TOML-based configuration.
 
@@ -155,7 +155,7 @@ On Linux CI, `libudev-dev` is installed because the `serialport` dependency uses
 The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt into the newer GitHub Actions JavaScript runtime and avoid the Node.js 20 deprecation warning.
 
 - Manual test build: run the `release` workflow from the Actions tab using `workflow_dispatch`
-- Tagged release build: push a tag like `v0.2.5`
+- Tagged release build: push a tag like `v0.2.6`
 - Build targets: `windows-latest`, `ubuntu-latest`, and `macos-latest`
 - Outputs:
   - workflow artifacts for each platform
@@ -165,8 +165,8 @@ The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt into the
 Example:
 
 ```bash
-git tag v0.2.5
-git push origin v0.2.5
+git tag v0.2.6
+git push origin v0.2.6
 ```
 
 ## Changelog
@@ -179,6 +179,11 @@ Before creating a release tag:
 2. Use the exact version format without the `v` prefix, for example:
 
 ```md
+## [0.2.6] - 2026-04-21
+
+### Fixed
+- Window icon loading now uses a compiled-in asset so the custom app icon remains available after self-update on Windows.
+
 ## [0.2.5] - 2026-04-20
 
 ### Changed
@@ -197,8 +202,8 @@ Before creating a release tag:
 4. Create and push the matching tag:
 
 ```bash
-git tag v0.2.5
-git push origin v0.2.5
+git tag v0.2.6
+git push origin v0.2.6
 ```
 
 If the matching changelog section is missing, the release workflow will fail instead of publishing incomplete notes.

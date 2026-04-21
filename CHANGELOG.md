@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.6] - 2026-04-21
+
+### Fixed
+- Window icon loading now uses a compiled-in asset so the custom app icon remains available after self-update on Windows.
+
 ## [0.2.5] - 2026-04-20
 
 ### Changed
