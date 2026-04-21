@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.10] - 2026-04-21
+
+### Changed
+- Plot series colors now use a larger 12-color palette with hash-based preferred colors plus visible-series collision avoidance, so concurrently visible curves are less likely to reuse the same color.
+
 ## [0.2.9] - 2026-04-21
 
 ### Added
