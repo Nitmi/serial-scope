@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.9] - 2026-04-21
+
+### Added
+- The send panel can now be hidden and restored without losing the current layout, and the visibility state is persisted in `config.toml`.
+
+### Changed
+- The send panel hide/show interaction now uses a lighter collapse affordance inside the panel plus a compact floating handle when the panel is hidden.
+
 ## [0.2.8] - 2026-04-21
 
 ### Changed
