@@ -18,7 +18,6 @@ pub const MAIN_CONTENT_BOTTOM_INSET: f32 = 4.0;
 const MAIN_PANEL_LINE: Color32 = Color32::from_rgb(208, 218, 230);
 const MAIN_PANEL_FILL: Color32 = Color32::from_rgb(255, 255, 255);
 const MAIN_PANEL_RADIUS: f32 = 12.0;
-
 pub fn main_content_size(ui: &egui::Ui) -> egui::Vec2 {
     egui::vec2(
         ui.available_width().max(0.0),

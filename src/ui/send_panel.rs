@@ -12,7 +12,21 @@ const SOFT_RADIUS: f32 = 9.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     panel_shell::show_main_panel(ui, |ui| {
-        ui.heading(RichText::new("发送区").color(INK));
+        ui.horizontal(|ui| {
+            ui.heading(RichText::new("发送区").color(INK));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let collapse_button = egui::Button::new(
+                    RichText::new("收起")
+                        .size(14.0)
+                        .color(Color32::from_rgb(92, 138, 196)),
+                )
+                .frame(false)
+                .min_size(egui::vec2(42.0, 24.0));
+                if ui.add(collapse_button).clicked() {
+                    app.hide_send_panel();
+                }
+            });
+        });
 
         ui.add_space(10.0);
         mode_toolbar_frame().show(ui, |ui| {

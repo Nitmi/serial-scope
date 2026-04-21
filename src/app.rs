@@ -201,6 +201,20 @@ impl SerialToolApp {
         self.serial_manager.send(GuiToSerialMessage::Close);
     }
 
+    pub fn show_send_panel(&mut self) {
+        if !self.config.show_send_panel {
+            self.config.show_send_panel = true;
+            self.persist_config();
+        }
+    }
+
+    pub fn hide_send_panel(&mut self) {
+        if self.config.show_send_panel {
+            self.config.show_send_panel = false;
+            self.persist_config();
+        }
+    }
+
     pub fn send_current_input(&mut self) {
         let input = self.send_input.clone();
         let mode = self.send_mode;
@@ -704,28 +718,30 @@ impl eframe::App for SerialToolApp {
 
         top_bar::show(ctx, self);
 
-        egui::SidePanel::right("send_panel")
-            .resizable(true)
-            .default_width(372.0)
-            .min_width(320.0)
-            .max_width(440.0)
-            .show(ctx, |ui| {
-                const SEND_PANEL_TOP_OFFSET: f32 = 6.0;
-                const SEND_PANEL_HEIGHT_TRIM: f32 = 6.0;
-                let available_height = ui.available_height();
-                ui.add_space(SEND_PANEL_TOP_OFFSET);
-                let panel_height = (available_height
-                    - panel_shell::MAIN_PANEL_ALIGNMENT_TRIM
-                    - SEND_PANEL_TOP_OFFSET)
-                    - SEND_PANEL_HEIGHT_TRIM.max(0.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), panel_height),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        send_panel::show(ui, self);
-                    },
-                );
-            });
+        if self.config.show_send_panel {
+            egui::SidePanel::right("send_panel")
+                .resizable(true)
+                .default_width(372.0)
+                .min_width(320.0)
+                .max_width(440.0)
+                .show(ctx, |ui| {
+                    const SEND_PANEL_TOP_OFFSET: f32 = 6.0;
+                    const SEND_PANEL_HEIGHT_TRIM: f32 = 6.0;
+                    let available_height = ui.available_height();
+                    ui.add_space(SEND_PANEL_TOP_OFFSET);
+                    let panel_height = (available_height
+                        - panel_shell::MAIN_PANEL_ALIGNMENT_TRIM
+                        - SEND_PANEL_TOP_OFFSET)
+                        - SEND_PANEL_HEIGHT_TRIM.max(0.0);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), panel_height),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            send_panel::show(ui, self);
+                        },
+                    );
+                });
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let panel_height =

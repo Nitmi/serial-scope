@@ -164,6 +164,7 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         }
                     });
 
+                    let send_handle_top = ui.next_widget_position().y + 6.0;
                     ui.add_space(8.0);
                     egui::CollapsingHeader::new(
                         RichText::new("高级串口参数").color(MUTED).strong(),
@@ -176,6 +177,22 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                             labeled_inline(ui, "校验位", |ui| enum_combo_parity(ui, app));
                         });
                     });
+
+                    if !app.config.show_send_panel {
+                        let available_rect = ctx.available_rect();
+                        let handle_size = egui::vec2(68.0, 30.0);
+                        let handle_pos =
+                            egui::pos2(available_rect.right() - handle_size.x, send_handle_top);
+                        egui::Area::new("send_panel_handle_floating".into())
+                            .order(egui::Order::Foreground)
+                            .fixed_pos(handle_pos)
+                            .interactable(true)
+                            .show(ctx, |ui| {
+                                if send_panel_handle_button(ui).clicked() {
+                                    app.show_send_panel();
+                                }
+                            });
+                    }
                 });
         });
 }
@@ -347,6 +364,36 @@ fn quiet_header_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
             .stroke(Stroke::new(1.0, Color32::from_rgb(214, 224, 236)))
             .rounding(egui::Rounding::same(CHIP_RADIUS)),
     )
+}
+
+fn send_panel_handle_button(ui: &mut egui::Ui) -> egui::Response {
+    let size = egui::vec2(68.0, 30.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let fill = if response.hovered() {
+        Color32::from_rgb(237, 245, 254)
+    } else {
+        Color32::from_rgb(243, 248, 253)
+    };
+    let stroke = Color32::from_rgb(198, 213, 229);
+    let ink = Color32::from_rgb(70, 95, 124);
+    let handle_rounding = egui::Rounding {
+        nw: CHIP_RADIUS + 4.0,
+        ne: 0.0,
+        sw: CHIP_RADIUS + 4.0,
+        se: 0.0,
+    };
+
+    ui.painter()
+        .rect(rect, handle_rounding, fill, Stroke::new(1.0, stroke));
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "发送区",
+        FontId::proportional(12.5),
+        ink,
+    );
+
+    response
 }
 
 fn state_chip(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) {

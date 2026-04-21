@@ -9,12 +9,18 @@ use crate::serial::{
 
 const CONFIG_PATH: &str = "config.toml";
 
+fn default_show_send_panel() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub serial: SerialPortConfig,
     pub receive_mode: DisplayMode,
     pub send_mode: DisplayMode,
     pub show_timestamps: bool,
+    #[serde(default = "default_show_send_panel")]
+    pub show_send_panel: bool,
     pub quick_commands: Vec<QuickCommandConfig>,
     pub auto_send: AutoSendConfig,
     pub protocol_assistant: ProtocolAssistantConfig,
@@ -85,6 +91,7 @@ impl Default for AppConfig {
             receive_mode: DisplayMode::Ascii,
             send_mode: DisplayMode::Ascii,
             show_timestamps: false,
+            show_send_panel: default_show_send_panel(),
             quick_commands: vec![
                 QuickCommandConfig {
                     name: "AT".to_owned(),
