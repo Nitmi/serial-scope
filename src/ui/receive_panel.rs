@@ -1,7 +1,7 @@
 use eframe::egui::{self, Color32, RichText, Stroke};
 
 use super::panel_shell;
-use crate::app::{mono_text_style, receive_display_text, MainView, SerialToolApp};
+use crate::app::{mono_text_style, receive_display_text, MainView, ReceiveRecord, SerialToolApp};
 use crate::serial::DisplayMode;
 
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
@@ -12,6 +12,7 @@ const SOFT_RADIUS: f32 = 9.0;
 const ROW_RADIUS: f32 = 8.0;
 const SEGMENT_OUTER_RADIUS: f32 = 18.0;
 const SEGMENT_INNER_RADIUS: f32 = 13.0;
+const LOG_ROW_HEIGHT: f32 = 42.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     panel_shell::show_main_panel(ui, |ui| {
@@ -193,10 +194,9 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
                 app.pause_receive_auto_follow();
             }
 
-            let filtered = app.filtered_receive_records();
             let highlights = app.highlight_words();
 
-            if filtered.is_empty() {
+            if app.receive_filter.trim().is_empty() && app.receive_lines.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(48.0);
                     ui.label(
@@ -213,52 +213,62 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
                 return;
             }
 
-            let output = egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .stick_to_bottom(app.receive_is_following())
-                .show(ui, |ui| {
-                    for (index, record) in filtered.into_iter().enumerate() {
-                        let content = receive_display_text(app.receive_mode, &record.data);
-                        let content_lower = content.to_lowercase();
-                        let has_highlight = highlights
-                            .iter()
-                            .any(|keyword| content_lower.contains(&keyword.to_lowercase()));
-                        let row_fill = if has_highlight {
-                            Color32::from_rgb(255, 246, 221)
-                        } else if index % 2 == 0 {
-                            Color32::from_rgb(250, 252, 255)
-                        } else {
-                            Color32::from_rgb(246, 249, 253)
-                        };
+            let output = if app.receive_filter.trim().is_empty() {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .stick_to_bottom(app.receive_is_following())
+                    .show_rows(
+                        ui,
+                        LOG_ROW_HEIGHT,
+                        app.receive_lines.len(),
+                        |ui, row_range| {
+                            for index in row_range {
+                                render_log_row(
+                                    ui,
+                                    app,
+                                    &app.receive_lines[index],
+                                    index,
+                                    &highlights,
+                                );
+                            }
 
-                        egui::Frame::none()
-                            .fill(row_fill)
-                            .stroke(Stroke::new(1.0, Color32::from_rgb(228, 236, 244)))
-                            .rounding(egui::Rounding::same(ROW_RADIUS))
-                            .inner_margin(egui::Margin::symmetric(10.0, 8.0))
-                            .show(ui, |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    if app.show_timestamps {
-                                        ui.label(
-                                            RichText::new(format!("[{}]", record.timestamp))
-                                                .monospace()
-                                                .color(ACCENT),
-                                        );
-                                    }
-                                    ui.label(
-                                        RichText::new(content.clone())
-                                            .text_style(mono_text_style())
-                                            .color(INK),
-                                    );
-                                });
-                            });
-                        ui.add_space(6.0);
-                    }
+                            if app.receive_is_following() && !user_requested_history {
+                                ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                            }
+                        },
+                    )
+            } else {
+                let filtered = app.filtered_receive_records();
+                if filtered.is_empty() {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(48.0);
+                        ui.label(
+                            RichText::new("当前没有可显示的接收记录")
+                                .strong()
+                                .color(INK),
+                        );
+                        ui.label(
+                            RichText::new("连接串口后，这里会按时间顺序展示收到的原始数据。")
+                                .small()
+                                .color(MUTED),
+                        );
+                    });
+                    return;
+                }
 
-                    if app.receive_is_following() && !user_requested_history {
-                        ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
-                    }
-                });
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .stick_to_bottom(app.receive_is_following())
+                    .show_rows(ui, LOG_ROW_HEIGHT, filtered.len(), |ui, row_range| {
+                        for index in row_range {
+                            render_log_row(ui, app, filtered[index], index, &highlights);
+                        }
+
+                        if app.receive_is_following() && !user_requested_history {
+                            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
+                        }
+                    })
+            };
 
             let max_offset_y = (output.content_size.y - output.inner_rect.height()).max(0.0);
             let is_at_bottom = max_offset_y <= 1.0 || output.state.offset.y >= max_offset_y - 12.0;
@@ -283,6 +293,52 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
             }
         },
     );
+}
+
+fn render_log_row(
+    ui: &mut egui::Ui,
+    app: &SerialToolApp,
+    record: &ReceiveRecord,
+    index: usize,
+    highlights: &[String],
+) {
+    let content = receive_display_text(app.receive_mode, &record.data);
+    let content_lower = content.to_lowercase();
+    let has_highlight = highlights
+        .iter()
+        .any(|keyword| content_lower.contains(&keyword.to_lowercase()));
+    let row_fill = if has_highlight {
+        Color32::from_rgb(255, 246, 221)
+    } else if index.is_multiple_of(2) {
+        Color32::from_rgb(250, 252, 255)
+    } else {
+        Color32::from_rgb(246, 249, 253)
+    };
+
+    egui::Frame::none()
+        .fill(row_fill)
+        .stroke(Stroke::new(1.0, Color32::from_rgb(228, 236, 244)))
+        .rounding(egui::Rounding::same(ROW_RADIUS))
+        .inner_margin(egui::Margin::symmetric(10.0, 7.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if app.show_timestamps {
+                    ui.label(
+                        RichText::new(format!("[{}]", record.timestamp))
+                            .monospace()
+                            .color(ACCENT),
+                    );
+                }
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(content)
+                            .text_style(mono_text_style())
+                            .color(INK),
+                    )
+                    .truncate(),
+                );
+            });
+        });
 }
 
 fn show_follow_resume_button(

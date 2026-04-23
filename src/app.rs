@@ -22,8 +22,8 @@ use crate::serial::{
 use crate::ui::{panel_shell, plot_panel, receive_panel, send_panel, top_bar};
 use crate::update::{self, UpdateCheckResult, UpdateEvent, UpdateState};
 
-const MAX_LOG_LINES: usize = 1_000;
-const MAX_PLOT_POINTS: usize = 2_000;
+const MAX_LOG_LINES: usize = 100_000;
+const MAX_PLOT_POINTS: usize = 200_000;
 const GUI_REFRESH_MS: u64 = 30;
 const PORT_REFRESH_MS: u64 = 1_500;
 const MAX_LINE_PREVIEW_CHARS: usize = 120;
@@ -1278,7 +1278,9 @@ fn modbus_crc16(data: &[u8]) -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use super::{PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp};
+    use super::{
+        PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp, MAX_PLOT_POINTS,
+    };
     use crate::config::AppConfig;
     use crate::parser::{ParsedLine, ParsedSchema};
     use egui_plot::PlotBounds;
@@ -1453,5 +1455,32 @@ mod tests {
 
         assert_eq!(app.receive_follow_mode, ReceiveFollowMode::Follow);
         assert_eq!(app.pending_receive_count, 0);
+    }
+
+    #[test]
+    fn receive_history_keeps_more_than_old_short_limit() {
+        let mut app = SerialToolApp::new(AppConfig::default());
+
+        for index in 0..1_500 {
+            app.store_receive_record(ReceiveRecord {
+                timestamp: "12:00:00.000".to_owned(),
+                data: format!("line {index}").into_bytes(),
+            });
+        }
+
+        assert_eq!(app.receive_lines.len(), 1_500);
+        assert_eq!(app.receive_lines.front().unwrap().data, b"line 0");
+    }
+
+    #[test]
+    fn plot_history_keeps_more_than_old_short_limit() {
+        let mut state = PlotState::default();
+
+        for index in 0..2_500 {
+            state.ingest(csv_line(index as f32), MAX_PLOT_POINTS);
+        }
+
+        assert_eq!(state.series["ch1"].len(), 2_500);
+        assert_eq!(state.series["ch1"].front().unwrap()[0], 0.0);
     }
 }
