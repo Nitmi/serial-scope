@@ -12,6 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.11] - 2026-04-23
+
+### Changed
+- The serial port picker now shows concise device labels, such as `COM13 CH340` and `COM14 STLink`, while keeping full device details available on hover.
+
+### Fixed
+- Receive logs and plot data now retain much longer histories so longer serial sessions can be reviewed and exported without losing early data.
+- The receive log now uses virtualized row rendering so large histories remain responsive in the UI.
+
 ## [0.2.10] - 2026-04-21
 
 ### Changed
