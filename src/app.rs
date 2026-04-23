@@ -16,8 +16,8 @@ use crate::config::{
 };
 use crate::parser::{LineAccumulator, ParsedLine, ParsedSchema};
 use crate::serial::{
-    available_port_names, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
-    DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialSettings,
+    available_port_options, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
+    DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialPortOption, SerialSettings,
 };
 use crate::ui::{panel_shell, plot_panel, receive_panel, send_panel, top_bar};
 use crate::update::{self, UpdateCheckResult, UpdateEvent, UpdateState};
@@ -35,6 +35,7 @@ pub struct SerialToolApp {
     serial_manager: SerialManager,
     serial_events: Receiver<SerialEvent>,
     pub port_names: Vec<String>,
+    pub port_options: Vec<SerialPortOption>,
     pub status_text: String,
     pub last_error: Option<String>,
     pub receive_mode: DisplayMode,
@@ -87,6 +88,7 @@ impl SerialToolApp {
         let (update_events_tx, update_events) = unbounded();
         let mut app = Self {
             port_names: Vec::new(),
+            port_options: Vec::new(),
             status_text: "未连接".to_owned(),
             last_error: None,
             receive_mode: config.receive_mode,
@@ -136,10 +138,14 @@ impl SerialToolApp {
     }
 
     pub fn refresh_ports(&mut self) {
-        match available_port_names() {
-            Ok(ports) => {
-                let ports_changed = self.port_names != ports;
-                self.port_names = ports;
+        match available_port_options() {
+            Ok(port_options) => {
+                let ports_changed = self.port_options != port_options;
+                self.port_names = port_options
+                    .iter()
+                    .map(|port| port.port_name.clone())
+                    .collect();
+                self.port_options = port_options;
 
                 let mut selection_changed = false;
                 if self.port_names.is_empty() {

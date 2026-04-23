@@ -6,6 +6,6 @@ pub use manager::SerialManager;
 pub use protocol::build_port_payload as build_port_options;
 pub use protocol::{bytes_to_ascii_display, bytes_to_hex_display};
 pub use types::{
-    available_port_names, DataBitsSetting, DisplayMode, GuiToSerialMessage, ParitySetting,
-    SerialEvent, SerialPortConfig, SerialSettings, StopBitsSetting,
+    available_port_options, DataBitsSetting, DisplayMode, GuiToSerialMessage, ParitySetting,
+    SerialEvent, SerialPortConfig, SerialPortOption, SerialSettings, StopBitsSetting,
 };

@@ -63,24 +63,27 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
 
                             ui.horizontal(|ui| {
                                 labeled_column(ui, "串口设备", |ui| {
+                                    let selected_port_label = selected_port_label(app)
+                                        .unwrap_or_else(|| "选择串口".to_owned());
+
                                     ComboBox::from_id_salt("port_name")
-                                        .width(240.0)
-                                        .selected_text(if app.config.serial.port_name.is_empty() {
-                                            "选择串口".to_owned()
-                                        } else {
-                                            app.config.serial.port_name.clone()
-                                        })
+                                        .width(300.0)
+                                        .selected_text(selected_port_label)
                                         .show_ui(ui, |ui| {
-                                            let ports = app.port_names.clone();
+                                            let ports = app.port_options.clone();
                                             for port in ports {
-                                                if ui
-                                                    .selectable_value(
-                                                        &mut app.config.serial.port_name,
-                                                        port.clone(),
-                                                        port.as_str(),
-                                                    )
-                                                    .changed()
-                                                {
+                                                let response = ui.selectable_value(
+                                                    &mut app.config.serial.port_name,
+                                                    port.port_name.clone(),
+                                                    port.display_label.as_str(),
+                                                );
+                                                let changed = response.changed();
+
+                                                if let Some(detail) = port.detail_label.as_deref() {
+                                                    response.on_hover_text(detail);
+                                                }
+
+                                                if changed {
                                                     app.persist_config();
                                                 }
                                             }
@@ -195,6 +198,20 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                     }
                 });
         });
+}
+
+fn selected_port_label(app: &SerialToolApp) -> Option<String> {
+    if app.config.serial.port_name.is_empty() {
+        return None;
+    }
+
+    Some(
+        app.port_options
+            .iter()
+            .find(|port| port.port_name == app.config.serial.port_name)
+            .map(|port| port.display_label.clone())
+            .unwrap_or_else(|| app.config.serial.port_name.clone()),
+    )
 }
 
 fn primary_band() -> egui::Frame {
