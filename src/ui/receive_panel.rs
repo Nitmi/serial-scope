@@ -13,6 +13,7 @@ const ROW_RADIUS: f32 = 8.0;
 const SEGMENT_OUTER_RADIUS: f32 = 18.0;
 const SEGMENT_INNER_RADIUS: f32 = 13.0;
 const LOG_ROW_HEIGHT: f32 = 42.0;
+const LOG_ROW_VERTICAL_MARGIN: f32 = 7.0;
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     panel_shell::show_main_panel(ui, |ui| {
@@ -315,30 +316,37 @@ fn render_log_row(
         Color32::from_rgb(246, 249, 253)
     };
 
-    egui::Frame::none()
-        .fill(row_fill)
-        .stroke(Stroke::new(1.0, Color32::from_rgb(228, 236, 244)))
-        .rounding(egui::Rounding::same(ROW_RADIUS))
-        .inner_margin(egui::Margin::symmetric(10.0, 7.0))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if app.show_timestamps {
-                    ui.label(
-                        RichText::new(format!("[{}]", record.timestamp))
-                            .monospace()
-                            .color(ACCENT),
-                    );
-                }
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(content)
-                            .text_style(mono_text_style())
-                            .color(INK),
-                    )
-                    .truncate(),
-                );
-            });
-        });
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), LOG_ROW_HEIGHT),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            egui::Frame::none()
+                .fill(row_fill)
+                .stroke(Stroke::new(1.0, Color32::from_rgb(228, 236, 244)))
+                .rounding(egui::Rounding::same(ROW_RADIUS))
+                .inner_margin(egui::Margin::symmetric(10.0, LOG_ROW_VERTICAL_MARGIN))
+                .show(ui, |ui| {
+                    ui.set_min_height((LOG_ROW_HEIGHT - LOG_ROW_VERTICAL_MARGIN * 2.0).max(0.0));
+                    ui.horizontal(|ui| {
+                        if app.show_timestamps {
+                            ui.label(
+                                RichText::new(format!("[{}]", record.timestamp))
+                                    .monospace()
+                                    .color(ACCENT),
+                            );
+                        }
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(content)
+                                    .text_style(mono_text_style())
+                                    .color(INK),
+                            )
+                            .truncate(),
+                        );
+                    });
+                });
+        },
+    );
 }
 
 fn show_follow_resume_button(
