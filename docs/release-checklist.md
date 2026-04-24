@@ -79,6 +79,9 @@ gh release view v0.2.x -R Nitmi/serial-scope --json tagName,body,assets,url
 Check:
 
 - release notes body is not empty
+- release notes body includes the download guide table
+- Windows installer link is shown before the portable Windows link and marked as recommended
+- direct download links point to `https://github.com/Nitmi/serial-scope/releases/download/v0.2.x/...`
 - assets include:
   - `serial-scope-windows-x86_64-portable.exe`
   - `serial-scope-windows-x86_64-setup.exe`

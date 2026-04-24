@@ -204,13 +204,32 @@ jobs:
                   end = index
                   break
 
-          body = "\n".join(lines[start:end]).strip()
-          if not body:
+          changelog_body = "\n".join(lines[start:end]).strip()
+          if not changelog_body:
               raise SystemExit(
                   f"CHANGELOG.md 中版本 [{version}] 的条目为空，请补充发布说明后再发布。"
               )
 
-          pathlib.Path("dist/release-notes.md").write_text(body + "\n", encoding="utf-8")
+          tag = os.environ["GITHUB_REF_NAME"]
+          release_base = f"https://github.com/Nitmi/serial-scope/releases/download/{tag}"
+          download_guide = f"""## 下载
+
+| 平台 | 推荐下载 | 说明 |
+| --- | --- | --- |
+| Windows | [下载安装版（推荐）]({release_base}/serial-scope-windows-x86_64-setup.exe) | 适合大多数 Windows 用户，会安装到固定目录并创建快捷方式。 |
+| Windows | [下载便携版]({release_base}/serial-scope-windows-x86_64-portable.exe) | 无需安装，适合临时使用或放在 U 盘中运行。 |
+| Linux x86_64 | [下载 tar.gz]({release_base}/serial-scope-linux-x86_64.tar.gz) | 解压后运行 `serial-scope`。 |
+| macOS | [下载 app.zip]({release_base}/serial-scope-macos.app.zip) | 解压后运行 `Serial Scope.app`。 |
+
+## 更新内容
+"""
+
+          pathlib.Path("dist/changelog-notes.md").write_text(
+              changelog_body + "\n", encoding="utf-8"
+          )
+          pathlib.Path("dist/release-notes.md").write_text(
+              download_guide + "\n" + changelog_body + "\n", encoding="utf-8"
+          )
           PY
 
       - name: Download build artifacts
@@ -230,7 +249,7 @@ jobs:
 
           tag = os.environ["GITHUB_REF_NAME"]
           version = tag.lstrip("v")
-          notes = pathlib.Path("dist/release-notes.md").read_text(encoding="utf-8").strip()
+          notes = pathlib.Path("dist/changelog-notes.md").read_text(encoding="utf-8").strip()
 
           assets = {
               "windows-x86_64": "serial-scope-windows-x86_64-portable.exe",
