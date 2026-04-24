@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.12] - 2026-04-24
+
+### Fixed
+- Opening a serial port now drains any initial buffered input before live monitoring starts, avoiding stale data bursts in the receive log.
+- Receive log rows now match the virtualized row height so auto-follow reaches the bottom without leaving blank space.
+
 ## [0.2.11] - 2026-04-23
 
 ### Changed
