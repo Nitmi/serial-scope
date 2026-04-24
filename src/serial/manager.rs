@@ -1,11 +1,14 @@
 use std::io::{Read, Write};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use serialport::ClearBuffer;
 
 use super::{GuiToSerialMessage, SerialEvent, SerialSettings};
+
+const INITIAL_INPUT_DRAIN_IDLE: Duration = Duration::from_millis(40);
+const INITIAL_INPUT_DRAIN_MAX: Duration = Duration::from_millis(250);
 
 pub struct SerialManager {
     sender: Sender<GuiToSerialMessage>,
@@ -55,8 +58,8 @@ fn serial_worker(cmd_rx: Receiver<GuiToSerialMessage>, evt_tx: Sender<SerialEven
                     let _ = evt_tx.send(SerialEvent::Status(format!("正在打开: {port_name}")));
 
                     match open_port(&port_name, &settings) {
-                        Ok(opened) => {
-                            let _ = opened.clear(ClearBuffer::Input);
+                        Ok(mut opened) => {
+                            drain_initial_input(opened.as_mut(), &mut read_buffer);
                             current_name = Some(port_name.clone());
                             port = Some(opened);
                             let _ = evt_tx.send(SerialEvent::Connected(port_name));
@@ -128,6 +131,35 @@ fn open_port(
         .timeout(Duration::from_millis(20))
         .open()?;
     Ok(port)
+}
+
+fn drain_initial_input(serial_port: &mut dyn serialport::SerialPort, read_buffer: &mut [u8]) {
+    let original_timeout = serial_port.timeout();
+    let _ = serial_port.clear(ClearBuffer::Input);
+    let _ = serial_port.set_timeout(Duration::from_millis(5));
+
+    let started_at = Instant::now();
+    let mut last_data_at = started_at;
+
+    loop {
+        match serial_port.read(read_buffer) {
+            Ok(count) if count > 0 => {
+                last_data_at = Instant::now();
+            }
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(_) => break,
+        }
+
+        let now = Instant::now();
+        if now.duration_since(started_at) >= INITIAL_INPUT_DRAIN_MAX
+            || now.duration_since(last_data_at) >= INITIAL_INPUT_DRAIN_IDLE
+        {
+            break;
+        }
+    }
+
+    let _ = serial_port.set_timeout(original_timeout);
 }
 
 fn friendly_open_port_error(port_name: &str, err: &anyhow::Error) -> String {
