@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use serialport::ClearBuffer;
 
 use super::{GuiToSerialMessage, SerialEvent, SerialSettings};
 
@@ -55,6 +56,7 @@ fn serial_worker(cmd_rx: Receiver<GuiToSerialMessage>, evt_tx: Sender<SerialEven
 
                     match open_port(&port_name, &settings) {
                         Ok(opened) => {
+                            let _ = opened.clear(ClearBuffer::Input);
                             current_name = Some(port_name.clone());
                             port = Some(opened);
                             let _ = evt_tx.send(SerialEvent::Connected(port_name));
