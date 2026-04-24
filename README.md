@@ -1,14 +1,18 @@
 # Serial Scope
 
-`Serial Scope` 是一个使用 `Rust + egui` 开发的串口调试助手，免费，高性能，跨平台，操作简单，UI 清爽，支持串口数据绘图。
+一个使用 `Rust + egui` 开发的**串口调试助手**，免费，高性能，跨平台，操作简单，UI 清爽，支持串口数据**绘图**。
 
 [下载](https://github.com/Nitmi/serial-scope/releases/latest)
 
 ## 界面预览
 
-| 串口监视 | 数据绘图 |
-| --- | --- |
-| <img src="assets/screenshots/serial-monitor.webp" alt="Serial Scope 串口监视界面" width="100%"> | <img src="assets/screenshots/data-plot.webp" alt="Serial Scope 数据绘图界面" width="100%"> |
+<p>
+  <img src="assets/screenshots/serial-monitor.webp" alt="Serial Scope 串口监视界面" width="960">
+</p>
+
+<p>
+  <img src="assets/screenshots/data-plot.webp" alt="Serial Scope 数据绘图界面" width="960">
+</p>
 
 ## 核心能力
 
@@ -91,4 +95,4 @@ cargo build --release
 
 ## License
 
-本项目使用 MIT License，适合个人、教学、开源和商业场景自由使用、修改和分发。
+本项目使用 MIT License。
