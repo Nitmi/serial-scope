@@ -1,287 +1,94 @@
-# serial-scope
+# Serial Scope
 
-Current version: `0.2.12`
+`Serial Scope` 是一个使用 `Rust + egui` 开发的串口调试助手，免费，高性能，跨平台，操作简单，UI 清爽，支持串口数据绘图。
 
-`serial-scope` is a cross-platform Rust serial debugging tool built with `eframe + egui`, targeting Windows and Fedora Linux. It supports asynchronous serial communication, ASCII/HEX send and display modes, text line parsing, real-time plotting, quick commands, auto-send, protocol helpers, and local TOML-based configuration.
+[下载](https://github.com/Nitmi/serial-scope/releases/latest)
 
-## Features
+## 界面预览
 
-- Serial port enumeration
-- Serial configuration: baud rate / data bits / stop bits / parity
-- Open / close port
-- Background serial worker thread with non-blocking GUI
-- ASCII / HEX send modes
-- ASCII / HEX receive display modes
-- Receive records grouped by complete text line
-- Receive filtering, keyword highlighting, timestamp toggle
-- Quick commands and send history reuse
-- Auto-send with interval and repeat limit
-- Protocol helper: HEX prefix / suffix, append CRLF, append CRC16 (Modbus)
-- Text line parsing
-  - `1.23,4.56,7.89`
-  - `temp=23.5,hum=60.2`
-- Configurable parser MVP: Auto / CSV / Key=Value, CSV delimiter, channel names
-- Real-time plotting with per-series show/hide and clear
-- Plot CSV export
-- Receive log export
-- Config persistence via `config.toml`
+| 串口监视 | 数据绘图 |
+| --- | --- |
+| <img src="assets/screenshots/serial-monitor.webp" alt="Serial Scope 串口监视界面" width="100%"> | <img src="assets/screenshots/data-plot.webp" alt="Serial Scope 数据绘图界面" width="100%"> |
 
-## Tech Stack
+## 核心能力
 
-- Rust stable
-- `eframe`, `egui`, `egui_plot`
+- **稳定的接收监视**：按完整文本行展示接收数据，支持时间戳、过滤、高亮关键字、自动跟随和大日志虚拟渲染。
+- **协议发送效率**：支持 ASCII/HEX 发送、快捷命令、发送历史、自动发送、前后缀 HEX、追加 CRLF、追加 CRC16(Modbus)。
+- **实时数据绘图**：自动解析 CSV 数字行和 `key=value` 数字行，实时生成多曲线图。
+- **曲线控制**：曲线显示/隐藏、清空、重命名、缩放、暂停绘图、导出 CSV。
+- **日志导出**：接收日志可导出为文本文件，曲线数据可导出为 CSV。
+
+## 支持的数据格式
+
+Serial Scope 的绘图解析器面向“调试时最常见的文本输出”，会忽略混杂的普通调试文本，只消费稳定的数字行。
+
+### CSV 数字行
+
+```text
+1.23,4.56,7.89
+```
+
+默认会映射为 `ch1`、`ch2`、`ch3`，也可以在配置中指定通道名。
+
+### Key=Value 数字行
+
+```text
+rpm=2058, pressure_kpa=125.2, motor_temp_c=38.0
+```
+
+曲线名会直接使用 key，例如 `rpm`、`pressure_kpa`、`motor_temp_c`。
+
+## 技术栈
+
+- Rust 2021
+- `eframe` / `egui` / `egui_plot`
 - `serialport`
 - `crossbeam-channel`
-- `serde`, `toml`
+- `serde` / `toml`
 - `anyhow`
-- `hex`
 - `chrono`
 - `fontdb`
 
-## Preview
+## 本地运行
 
-![serial-scope preview](assets/preview.png)
-
-## Project Layout
-
-```text
-serial-scope/
-├─ Cargo.toml
-├─ LICENSE
-├─ README.md
-├─ examples/
-│  └─ serial_plot_template.c
-└─ src/
-   ├─ main.rs
-   ├─ app.rs
-   ├─ config.rs
-   ├─ serial/
-   │  ├─ mod.rs
-   │  ├─ manager.rs
-   │  ├─ protocol.rs
-   │  └─ types.rs
-   ├─ parser/
-   │  ├─ mod.rs
-   │  └─ line_parser.rs
-   └─ ui/
-      ├─ mod.rs
-      ├─ top_bar.rs
-      ├─ receive_panel.rs
-      ├─ send_panel.rs
-      └─ plot_panel.rs
-```
-
-## Run
-
-### 1. Install Rust stable
+### 安装 Rust stable
 
 ```bash
 rustup default stable
 ```
 
-### 2. Windows dependencies
+### Windows 依赖
 
-Use the MSVC toolchain and install one of the following:
+使用 MSVC 工具链，并安装以下任意一种：
 
 - Visual Studio 2022 Build Tools
-- Visual Studio Community with C++ build tools
+- 带 C++ 构建工具的 Visual Studio Community
 
-If `link.exe` is missing, `cargo run` and `cargo build` will fail.
+如果缺少 `link.exe`，`cargo run` 和 `cargo build` 会失败。
 
-### 3. Fedora Linux dependencies
+### Fedora Linux 依赖
 
 ```bash
 sudo dnf install gcc gcc-c++ systemd-devel fontconfig-devel freetype-devel libX11-devel libXcursor-devel libXi-devel libXrandr-devel libXinerama-devel libxcb-devel mesa-libGL-devel wayland-devel libxkbcommon-devel
 ```
 
-### 4. Start in development mode
+### 启动开发版本
 
 ```bash
 cargo run
 ```
 
-## Build Release
+### 构建发布版本
 
 ```bash
 cargo build --release
 ```
 
-Generated binaries:
+生成产物：
 
-- Windows: `target/release/serial-scope.exe`
-- Linux: `target/release/serial-scope`
-
-## Packaging
-
-- Windows builds still embed `assets/app-icon.ico` into `serial-scope.exe` through `build.rs`
-- Release archives are intentionally minimal portable bundles:
-  - Windows release asset is the raw `serial-scope-windows-x86_64-portable.exe` binary
-  - Windows also ships an installer asset: `serial-scope-windows-x86_64-setup.exe`
-  - Linux tar.gz contains only `serial-scope`
-  - macOS zip contains only `Serial Scope.app`
-- Local packaging helpers:
-  - Windows: `packaging\windows\package-windows.bat`
-  - Linux: `bash packaging/linux/package-linux.sh`
-  - macOS: `bash packaging/macos/package-macos.sh`
-
-For beginner-friendly Windows usage, prefer the installer build:
-
-- default install path: `%LocalAppData%\Programs\Serial Scope`
-- creates a desktop shortcut
-- keeps the portable `.exe` release available for users who prefer no-install mode
-
-Windows SmartScreen warnings cannot be fully eliminated by packaging changes alone. The practical fix is code signing. This repository now supports optional signing in GitHub Actions when these secrets are configured:
-
-- `WINDOWS_SIGN_CERT_B64`
-- `WINDOWS_SIGN_CERT_PASSWORD`
-
-## GitHub Actions Release
-
-This repository includes:
-
-- `.github/workflows/ci.yml`
-  - runs on pushes to `main` and `feature/**`
-  - runs on every pull request
-  - checks:
-    - `cargo fmt --check`
-    - `cargo test --locked`
-    - `cargo clippy --all-targets --all-features --locked`
-- `.github/workflows/release.yml`
-  - runs on `v*` tags and `workflow_dispatch`
-  - validates formatting, tests, and clippy before release packaging
-  - creates the GitHub Release once after all platform artifacts are ready, so the changelog body is applied consistently
-
-On Linux CI, `libudev-dev` is installed because the `serialport` dependency uses `libudev` on Linux.
-The workflow also sets `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` to opt into the newer GitHub Actions JavaScript runtime and avoid the Node.js 20 deprecation warning.
-
-- Manual test build: run the `release` workflow from the Actions tab using `workflow_dispatch`
-- Tagged release build: push a tag like `v0.2.12`
-- Build targets: `windows-latest`, `ubuntu-latest`, and `macos-latest`
-- Outputs:
-  - workflow artifacts for each platform
-  - GitHub Release assets automatically uploaded when the workflow is triggered by a tag
-  - `latest.json` manifest for in-app update checks
-
-Example:
-
-```bash
-git tag v0.2.12
-git push origin v0.2.12
-```
-
-## Changelog
-
-Release notes are sourced from `CHANGELOG.md`.
-
-Before creating a release tag:
-
-1. Add a new section in `CHANGELOG.md`
-2. Use the exact version format without the `v` prefix, for example:
-
-```md
-## [0.2.10] - 2026-04-21
-
-### Changed
-- Plot series colors now use a larger 12-color palette with hash-based preferred colors plus visible-series collision avoidance, so concurrently visible curves are less likely to reuse the same color.
-
-## [0.2.9] - 2026-04-21
-
-### Added
-- The send panel can now be hidden and restored without losing the current layout, and the visibility state is persisted in `config.toml`.
-
-### Changed
-- The send panel hide/show interaction now uses a lighter collapse affordance inside the panel plus a compact floating handle when the panel is hidden.
-
-## [0.2.8] - 2026-04-21
-
-### Changed
-- The send panel now has a tighter maximum width, and its main editor plus HEX prefix/suffix fields adapt more cleanly within the available panel space.
-
-### Fixed
-- Release publishing now purges the gh.123778.xyz CDN cache directly in the main release workflow instead of depending on a separately triggered release event.
-
-## [0.2.7] - 2026-04-21
-
-### Fixed
-- Windows startup now cleans stale self-update temporary executables left behind by previous `self-replace` operations in the install directory.
-- The serial open failure banner height is now visually aligned more closely with the serial control card beside it.
-- The GitHub release workflow now extracts the matching changelog section body correctly instead of publishing empty release notes.
-
-## [0.2.6] - 2026-04-21
-
-### Fixed
-- Window icon loading now uses a compiled-in asset so the custom app icon remains available after self-update on Windows.
-
-## [0.2.5] - 2026-04-20
-
-### Changed
-- The in-app "new version available" indicator now uses a warmer highlight color so it stands out more clearly from the app's primary blue accent.
-
-## [0.2.4] - 2026-04-20
-
-### Changed
-- Windows portable release asset is now named `serial-scope-windows-x86_64-portable.exe` to distinguish it clearly from the installer package.
-
-### Fixed
-- ...
-```
-
-3. Commit the changelog update
-4. Create and push the matching tag:
-
-```bash
-git tag v0.2.12
-git push origin v0.2.12
-```
-
-If the matching changelog section is missing, the release workflow will fail instead of publishing incomplete notes.
-
-For the full step-by-step release template, see [docs/release-checklist.md](docs/release-checklist.md).
-
-## Configuration
-
-The app reads and writes `config.toml` beside the running executable. In portable usage this means the extracted app folder; in the Windows installer build this means the installed app directory under `%LocalAppData%\Programs\Serial Scope`.
-
-It persists:
-
-- Selected serial port
-- Baud rate
-- Data bits / stop bits / parity
-- Receive display mode
-- Send mode
-- Quick commands
-- Auto-send settings
-- Protocol helper settings
-- Parser settings
-- Receive filter and highlight keywords
-
-## Parsing Notes
-
-Parsing lives in `src/parser/line_parser.rs` and processes complete lines split by `\n`.
-
-- CSV numeric lines map to configured channel names or fallback names like `ch1`, `ch2`, `ch3`
-- `key=value` lines use the key names directly as plot series
-- In `Auto` mode, CSV parsing only applies when the configured delimiter is actually present
-- Invalid lines are ignored safely without crashing the app
-
-## Export
-
-- Receive logs export to `*_receive.txt`
-- Plot data exports to `*_plot.csv`
-- Export file prefix can be edited in the top toolbar
+- Windows：`target/release/serial-scope.exe`
+- Linux：`target/release/serial-scope`
 
 ## License
 
-This project uses the MIT License. It is a good fit here because it keeps the tool easy to reuse, modify, and redistribute for personal, educational, and commercial scenarios with minimal friction.
-
-## Vibe Coding Note
-
-This project is a vibe coding product: the codebase was generated and iteratively refined with the help of a large language model, then compiled, debugged, and adjusted through real usage feedback.
-
-## Roadmap Ideas
-
-- Multi-port sessions
-- More protocol templates and checksum helpers
-- Binary protocol parsers
-- Advanced plot cursors and annotations
-- Rolling file logging
+本项目使用 MIT License，适合个人、教学、开源和商业场景自由使用、修改和分发。
