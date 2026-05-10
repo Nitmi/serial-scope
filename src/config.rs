@@ -73,6 +73,20 @@ pub struct ParserConfig {
 pub struct PlotLayoutConfig {
     pub auto_sidebar_width: bool,
     pub sidebar_width: f32,
+    #[serde(default)]
+    pub x_axis_mode: PlotXAxisMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlotXAxisMode {
+    Point,
+    Time,
+}
+
+impl Default for PlotXAxisMode {
+    fn default() -> Self {
+        Self::Point
+    }
 }
 
 impl Default for PlotLayoutConfig {
@@ -80,6 +94,7 @@ impl Default for PlotLayoutConfig {
         Self {
             auto_sidebar_width: true,
             sidebar_width: 300.0,
+            x_axis_mode: PlotXAxisMode::Point,
         }
     }
 }

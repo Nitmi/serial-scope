@@ -5,6 +5,7 @@ use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
 use super::panel_shell;
 use crate::app::{preview_text_line, MainView, SerialToolApp};
+use crate::config::PlotXAxisMode;
 
 const RESIZE_HANDLE_WIDTH: f32 = 12.0;
 const INK: Color32 = Color32::from_rgb(48, 56, 66);
@@ -103,6 +104,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                     |ui| {
                         let plot = Plot::new("serial_plot")
                             .legend(Legend::default())
+                            .x_axis_label(app.chart_state.x_axis_label())
+                            .x_axis_formatter({
+                                let x_axis_mode = app.chart_state.x_axis_mode;
+                                move |mark, _| match x_axis_mode {
+                                    PlotXAxisMode::Point => format!("{:.0}", mark.value),
+                                    PlotXAxisMode::Time => format!("{:.1}s", mark.value),
+                                }
+                            })
                             .allow_scroll(true)
                             .allow_zoom(true)
                             .allow_drag(true)
@@ -139,8 +148,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
 
                             for key in &visible_keys {
                                 if let Some(values) = app.chart_state.series.get(key.as_str()) {
-                                    let points =
-                                        PlotPoints::from_iter(values.iter().map(|p| [p[0], p[1]]));
+                                    let x_axis_mode = app.chart_state.x_axis_mode;
+                                    let points = PlotPoints::from_iter(
+                                        values
+                                            .iter()
+                                            .map(|p| [p.x(x_axis_mode), p.value]),
+                                    );
                                     plot_ui.line(
                                         Line::new(points)
                                             .name(app.chart_state.display_name(&key))
@@ -210,6 +223,28 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                             RichText::new("拖动中间分隔线可调整宽度，X/Y 缩放互相独立。").small(),
                         );
                         ui.add_space(4.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("X 轴").small().color(MUTED));
+                            let mut x_axis_mode = app.chart_state.x_axis_mode;
+                            let point_changed = ui
+                                .selectable_value(
+                                    &mut x_axis_mode,
+                                    PlotXAxisMode::Point,
+                                    "点数",
+                                )
+                                .changed();
+                            let time_changed = ui
+                                .selectable_value(
+                                    &mut x_axis_mode,
+                                    PlotXAxisMode::Time,
+                                    "时间",
+                                )
+                                .changed();
+                            if point_changed || time_changed {
+                                app.chart_state.set_x_axis_mode(x_axis_mode);
+                                app.persist_config();
+                            }
+                        });
                         ui.add(
                             Slider::new(&mut app.chart_state.x_zoom, 0.2..=5.0).text("X 轴缩放"),
                         );
@@ -293,13 +328,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                                                         f64::NEG_INFINITY;
                                                                     for point in values {
                                                                         min_value =
-                                                                            min_value.min(point[1]);
+                                                                            min_value.min(point.value);
                                                                         max_value =
-                                                                            max_value.max(point[1]);
+                                                                            max_value.max(point.value);
                                                                     }
                                                                     let current = values
                                                                         .back()
-                                                                        .map(|point| point[1])
+                                                                        .map(|point| point.value)
                                                                         .unwrap_or(0.0);
                                                                     (min_value, max_value, current)
                                                                 })

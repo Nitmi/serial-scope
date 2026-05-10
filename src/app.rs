@@ -11,7 +11,8 @@ use egui_plot::PlotBounds;
 use rfd::FileDialog;
 
 use crate::config::{
-    AppConfig, AutoSendConfig, PlotLayoutConfig, ProtocolAssistantConfig, QuickCommandConfig,
+    AppConfig, AutoSendConfig, PlotLayoutConfig, PlotXAxisMode, ProtocolAssistantConfig,
+    QuickCommandConfig,
 };
 use crate::parser::{LineAccumulator, ParsedLine, ParsedSchema};
 use crate::serial::{
@@ -178,6 +179,7 @@ impl SerialToolApp {
         self.config.plot_layout = PlotLayoutConfig {
             auto_sidebar_width: self.chart_state.auto_sidebar_width,
             sidebar_width: self.chart_state.sidebar_width,
+            x_axis_mode: self.chart_state.x_axis_mode,
         };
         if let Err(err) = self.config.save() {
             self.last_error = Some(format!("保存配置失败: {err}"));
@@ -341,7 +343,8 @@ impl SerialToolApp {
         else {
             return;
         };
-        let mut headers = vec!["x".to_owned()];
+        let x_axis_mode = self.chart_state.x_axis_mode;
+        let mut headers = vec![self.chart_state.x_axis_label().to_owned()];
         let visible = self.chart_state.visible_series_keys();
         headers.extend(
             visible
@@ -364,7 +367,7 @@ impl SerialToolApp {
                 if let Some(values) = self.chart_state.series.get(name) {
                     if let Some(point) = values.get(index) {
                         if x_value.is_empty() {
-                            x_value = format!("{:.0}", point[0]);
+                            x_value = self.chart_state.format_x_value(point.x(x_axis_mode));
                         }
                     }
                 }
@@ -376,7 +379,7 @@ impl SerialToolApp {
                     .series
                     .get(name)
                     .and_then(|values| values.get(index))
-                    .map(|point| format!("{:.6}", point[1]))
+                    .map(|point| format!("{:.6}", point.value))
                     .unwrap_or_default();
                 row.push(cell);
             }
@@ -502,7 +505,9 @@ impl SerialToolApp {
             return;
         }
         for parsed in parsed_lines {
-            self.chart_state.ingest(parsed, MAX_PLOT_POINTS);
+            let elapsed_secs = self.start_time.elapsed().as_secs_f64();
+            self.chart_state
+                .ingest(parsed, elapsed_secs, MAX_PLOT_POINTS);
         }
     }
 
@@ -807,6 +812,7 @@ pub struct PlotState {
     next_index: f64,
     paused: bool,
     pub follow_mode: PlotFollowMode,
+    pub x_axis_mode: PlotXAxisMode,
     pub x_zoom: f64,
     pub y_zoom: f64,
     last_applied_x_zoom: f64,
@@ -816,11 +822,27 @@ pub struct PlotState {
     locked_schema: Option<ParsedSchema>,
     pending_schema: Option<PendingSchema>,
     last_filter_message: Option<String>,
-    pub series: BTreeMap<String, VecDeque<[f64; 2]>>,
+    pub series: BTreeMap<String, VecDeque<PlotPoint>>,
     pub visible: BTreeSet<String>,
     display_names: BTreeMap<String, String>,
     renaming_series_key: Option<String>,
     renaming_series_name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlotPoint {
+    pub index: f64,
+    pub elapsed_secs: f64,
+    pub value: f64,
+}
+
+impl PlotPoint {
+    pub fn x(&self, mode: PlotXAxisMode) -> f64 {
+        match mode {
+            PlotXAxisMode::Point => self.index,
+            PlotXAxisMode::Time => self.elapsed_secs,
+        }
+    }
 }
 
 impl Default for PlotState {
@@ -829,6 +851,7 @@ impl Default for PlotState {
             next_index: 0.0,
             paused: false,
             follow_mode: PlotFollowMode::Follow,
+            x_axis_mode: PlotXAxisMode::Point,
             x_zoom: 1.0,
             y_zoom: 1.0,
             last_applied_x_zoom: 1.0,
@@ -849,7 +872,12 @@ impl Default for PlotState {
 
 struct PendingSchema {
     schema: ParsedSchema,
-    lines: Vec<ParsedLine>,
+    lines: Vec<PendingPlotLine>,
+}
+
+struct PendingPlotLine {
+    parsed: ParsedLine,
+    elapsed_secs: f64,
 }
 
 impl PlotState {
@@ -857,6 +885,7 @@ impl PlotState {
         Self {
             auto_sidebar_width: config.auto_sidebar_width,
             sidebar_width: config.sidebar_width.clamp(260.0, 420.0),
+            x_axis_mode: config.x_axis_mode,
             ..Self::default()
         }
     }
@@ -880,10 +909,10 @@ impl PlotState {
         self.auto_sidebar_width = true;
     }
 
-    pub fn ingest(&mut self, parsed: ParsedLine, max_points: usize) {
+    pub fn ingest(&mut self, parsed: ParsedLine, elapsed_secs: f64, max_points: usize) {
         if self.locked_schema.as_ref() == Some(&parsed.schema) {
             self.pending_schema = None;
-            self.push_line(parsed, max_points);
+            self.push_line(parsed, elapsed_secs, max_points);
             return;
         }
 
@@ -893,12 +922,18 @@ impl PlotState {
         if self.locked_schema.is_some() {
             let mut pending = match pending {
                 Some(mut pending) if pending.schema == parsed.schema => {
-                    pending.lines.push(parsed);
+                    pending.lines.push(PendingPlotLine {
+                        parsed,
+                        elapsed_secs,
+                    });
                     pending
                 }
                 _ => PendingSchema {
                     schema: parsed.schema.clone(),
-                    lines: vec![parsed],
+                    lines: vec![PendingPlotLine {
+                        parsed,
+                        elapsed_secs,
+                    }],
                 },
             };
 
@@ -912,7 +947,7 @@ impl PlotState {
                     new_schema.label()
                 ));
                 for line in lines {
-                    self.push_line(line, max_points);
+                    self.push_line(line.parsed, line.elapsed_secs, max_points);
                 }
             } else {
                 self.pending_schema = Some(pending);
@@ -924,12 +959,18 @@ impl PlotState {
 
         let mut pending = match pending {
             Some(mut pending) if pending.schema == parsed.schema => {
-                pending.lines.push(parsed);
+                pending.lines.push(PendingPlotLine {
+                    parsed,
+                    elapsed_secs,
+                });
                 pending
             }
             _ => PendingSchema {
                 schema: parsed.schema.clone(),
-                lines: vec![parsed],
+                lines: vec![PendingPlotLine {
+                    parsed,
+                    elapsed_secs,
+                }],
             },
         };
 
@@ -939,7 +980,7 @@ impl PlotState {
             self.locked_schema = Some(locked.clone());
             self.last_filter_message = Some(format!("已锁定绘图格式: {}", locked.label()));
             for line in lines {
-                self.push_line(line, max_points);
+                self.push_line(line.parsed, line.elapsed_secs, max_points);
             }
         } else {
             self.last_filter_message = Some(format!(
@@ -951,14 +992,18 @@ impl PlotState {
         }
     }
 
-    fn push_line(&mut self, parsed: ParsedLine, max_points: usize) {
+    fn push_line(&mut self, parsed: ParsedLine, elapsed_secs: f64, max_points: usize) {
         for (name, value) in parsed.values {
             self.display_names
                 .entry(name.clone())
                 .or_insert_with(|| name.clone());
             let points = self.series.entry(name.clone()).or_default();
             self.visible.insert(name);
-            points.push_back([self.next_index, value as f64]);
+            points.push_back(PlotPoint {
+                index: self.next_index,
+                elapsed_secs,
+                value: value as f64,
+            });
             while points.len() > max_points {
                 points.pop_front();
             }
@@ -1016,6 +1061,27 @@ impl PlotState {
         self.follow_mode == PlotFollowMode::Manual
     }
 
+    pub fn set_x_axis_mode(&mut self, mode: PlotXAxisMode) {
+        if self.x_axis_mode != mode {
+            self.x_axis_mode = mode;
+            self.resume_auto_follow();
+        }
+    }
+
+    pub fn x_axis_label(&self) -> &'static str {
+        match self.x_axis_mode {
+            PlotXAxisMode::Point => "点数",
+            PlotXAxisMode::Time => "时间(s)",
+        }
+    }
+
+    pub fn format_x_value(&self, value: f64) -> String {
+        match self.x_axis_mode {
+            PlotXAxisMode::Point => format!("{value:.0}"),
+            PlotXAxisMode::Time => format!("{value:.3}"),
+        }
+    }
+
     pub fn sync_zoom_tracking(&mut self) {
         self.last_applied_x_zoom = self.x_zoom.max(0.1);
         self.last_applied_y_zoom = self.y_zoom.max(0.1);
@@ -1060,8 +1126,20 @@ impl PlotState {
 
     pub fn x_bounds(&self) -> Option<(f64, f64)> {
         let max_x = self.max_x()?;
-        let span = (200.0 / self.x_zoom.max(0.1)).max(10.0);
-        Some(((max_x - span).max(0.0), max_x + 5.0))
+        let base_span = match self.x_axis_mode {
+            PlotXAxisMode::Point => 200.0,
+            PlotXAxisMode::Time => 30.0,
+        };
+        let min_span = match self.x_axis_mode {
+            PlotXAxisMode::Point => 10.0,
+            PlotXAxisMode::Time => 1.0,
+        };
+        let lead = match self.x_axis_mode {
+            PlotXAxisMode::Point => 5.0,
+            PlotXAxisMode::Time => 0.5,
+        };
+        let span = (base_span / self.x_zoom.max(0.1)).max(min_span);
+        Some(((max_x - span).max(0.0), max_x + lead))
     }
 
     pub fn y_bounds(&self) -> Option<(f64, f64)> {
@@ -1072,8 +1150,8 @@ impl PlotState {
                 continue;
             }
             for point in values {
-                min_y = min_y.min(point[1]);
-                max_y = max_y.max(point[1]);
+                min_y = min_y.min(point.value);
+                max_y = max_y.max(point.value);
             }
         }
         if !min_y.is_finite() || !max_y.is_finite() {
@@ -1162,7 +1240,7 @@ impl PlotState {
         self.series
             .iter()
             .filter(|(name, _)| self.visible.contains(*name))
-            .filter_map(|(_, values)| values.back().map(|point| point[0]))
+            .filter_map(|(_, values)| values.back().map(|point| point.x(self.x_axis_mode)))
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
     }
 
@@ -1176,7 +1254,7 @@ impl PlotState {
                 continue;
             }
             if let Some(last) = values.back() {
-                parts.push(format!("{}={:.3}", self.display_name(name), last[1]));
+                parts.push(format!("{}={:.3}", self.display_name(name), last.value));
             }
         }
         if parts.is_empty() {
@@ -1277,7 +1355,7 @@ mod tests {
     use super::{
         PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp, MAX_PLOT_POINTS,
     };
-    use crate::config::AppConfig;
+    use crate::config::{AppConfig, PlotXAxisMode};
     use crate::parser::{ParsedLine, ParsedSchema};
     use egui_plot::PlotBounds;
 
@@ -1301,11 +1379,11 @@ mod tests {
     fn locks_schema_after_three_matching_lines() {
         let mut state = PlotState::default();
 
-        state.ingest(csv_line(1.0), 32);
-        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(1.0), 0.0, 32);
+        state.ingest(csv_line(2.0), 0.0, 32);
         assert!(state.series.is_empty());
 
-        state.ingest(csv_line(3.0), 32);
+        state.ingest(csv_line(3.0), 0.0, 32);
         assert_eq!(state.visible_series_keys().len(), 2);
         assert_eq!(state.series["ch1"].len(), 3);
         assert!(state.schema_status_text().contains("当前主格式"));
@@ -1315,10 +1393,10 @@ mod tests {
     fn drops_single_mismatched_line_after_lock() {
         let mut state = PlotState::default();
 
-        state.ingest(csv_line(1.0), 32);
-        state.ingest(csv_line(2.0), 32);
-        state.ingest(csv_line(3.0), 32);
-        state.ingest(kv_line(50.0), 32);
+        state.ingest(csv_line(1.0), 0.0, 32);
+        state.ingest(csv_line(2.0), 0.0, 32);
+        state.ingest(csv_line(3.0), 0.0, 32);
+        state.ingest(kv_line(50.0), 0.0, 32);
 
         assert_eq!(state.series["ch1"].len(), 3);
         assert!(!state.series.contains_key("hum"));
@@ -1329,12 +1407,12 @@ mod tests {
     fn switches_schema_after_three_consecutive_new_lines() {
         let mut state = PlotState::default();
 
-        state.ingest(csv_line(1.0), 32);
-        state.ingest(csv_line(2.0), 32);
-        state.ingest(csv_line(3.0), 32);
-        state.ingest(kv_line(50.0), 32);
-        state.ingest(kv_line(51.0), 32);
-        state.ingest(kv_line(52.0), 32);
+        state.ingest(csv_line(1.0), 0.0, 32);
+        state.ingest(csv_line(2.0), 0.0, 32);
+        state.ingest(csv_line(3.0), 0.0, 32);
+        state.ingest(kv_line(50.0), 0.0, 32);
+        state.ingest(kv_line(51.0), 0.0, 32);
+        state.ingest(kv_line(52.0), 0.0, 32);
 
         assert!(!state.series.contains_key("ch1"));
         assert_eq!(state.series["hum"].len(), 3);
@@ -1345,8 +1423,8 @@ mod tests {
     fn clear_resets_locked_schema_and_candidates() {
         let mut state = PlotState::default();
 
-        state.ingest(csv_line(1.0), 32);
-        state.ingest(csv_line(2.0), 32);
+        state.ingest(csv_line(1.0), 0.0, 32);
+        state.ingest(csv_line(2.0), 0.0, 32);
         state.clear();
 
         assert!(state.series.is_empty());
@@ -1392,15 +1470,32 @@ mod tests {
     fn series_display_name_can_be_renamed_without_changing_key() {
         let mut state = PlotState::default();
 
-        state.ingest(csv_line(1.0), 32);
-        state.ingest(csv_line(2.0), 32);
-        state.ingest(csv_line(3.0), 32);
+        state.ingest(csv_line(1.0), 0.0, 32);
+        state.ingest(csv_line(2.0), 0.0, 32);
+        state.ingest(csv_line(3.0), 0.0, 32);
         state.start_series_renaming("ch1");
         *state.renaming_series_name_mut().unwrap() = "温度".to_owned();
 
         assert!(state.commit_series_renaming());
         assert_eq!(state.display_name("ch1"), "温度");
         assert!(state.series.contains_key("ch1"));
+    }
+
+    #[test]
+    fn x_axis_mode_switches_between_point_index_and_time() {
+        let mut state = PlotState::default();
+
+        state.ingest(csv_line(1.0), 1.5, 32);
+        state.ingest(csv_line(2.0), 2.5, 32);
+        state.ingest(csv_line(3.0), 3.5, 32);
+
+        let first = state.series["ch1"].front().unwrap();
+        assert_eq!(first.x(PlotXAxisMode::Point), 0.0);
+        assert_eq!(first.x(PlotXAxisMode::Time), 1.5);
+
+        state.set_x_axis_mode(PlotXAxisMode::Time);
+        assert_eq!(state.x_axis_label(), "时间(s)");
+        assert_eq!(state.max_x(), Some(3.5));
     }
 
     #[test]
@@ -1473,10 +1568,10 @@ mod tests {
         let mut state = PlotState::default();
 
         for index in 0..2_500 {
-            state.ingest(csv_line(index as f32), MAX_PLOT_POINTS);
+            state.ingest(csv_line(index as f32), index as f64, MAX_PLOT_POINTS);
         }
 
         assert_eq!(state.series["ch1"].len(), 2_500);
-        assert_eq!(state.series["ch1"].front().unwrap()[0], 0.0);
+        assert_eq!(state.series["ch1"].front().unwrap().index, 0.0);
     }
 }
