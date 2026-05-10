@@ -246,10 +246,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                             }
                         });
                         ui.add(
-                            Slider::new(&mut app.chart_state.x_zoom, 0.2..=5.0).text("X 轴缩放"),
+                            Slider::new(&mut app.chart_state.x_zoom, 0.2..=20.0)
+                                .text("X 轴缩放"),
                         );
                         ui.add(
-                            Slider::new(&mut app.chart_state.y_zoom, 0.2..=5.0).text("Y 轴缩放"),
+                            Slider::new(&mut app.chart_state.y_zoom, 0.2..=20.0)
+                                .text("Y 轴缩放"),
                         );
                         ui.add_space(8.0);
                         let sidebar_panel_height = ui.available_height().max(0.0);
