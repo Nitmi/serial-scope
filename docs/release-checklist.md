@@ -20,6 +20,7 @@ Add a new section at the top of `CHANGELOG.md`:
 ```
 
 Keep the version without the `v` prefix.
+Write new changelog entries in Chinese.
 
 ## 2. Bump version
 
