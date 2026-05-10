@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
-use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -68,7 +67,6 @@ pub struct SerialToolApp {
     pub highlight_keywords: String,
     pub receive_follow_mode: ReceiveFollowMode,
     pub pending_receive_count: usize,
-    pub export_base_name: String,
     pub protocol_assistant: ProtocolAssistantConfig,
     pub update_state: UpdateState,
     update_events_tx: Sender<UpdateEvent>,
@@ -121,7 +119,6 @@ impl SerialToolApp {
             highlight_keywords,
             receive_follow_mode: ReceiveFollowMode::Follow,
             pending_receive_count: 0,
-            export_base_name: format!("serial_log_{}", Local::now().format("%Y%m%d_%H%M%S")),
             protocol_assistant,
             update_state: UpdateState::Idle,
             update_events_tx,
@@ -310,7 +307,7 @@ impl SerialToolApp {
     }
 
     pub fn export_receive_log(&mut self) {
-        let default_name = format!("{}_receive.txt", self.export_base_name.trim());
+        let default_name = export_file_name("receive", "txt");
         let Some(path) = FileDialog::new()
             .set_file_name(&default_name)
             .add_filter("文本日志", &["txt", "log"])
@@ -329,7 +326,6 @@ impl SerialToolApp {
         }
         match fs::write(&path, text) {
             Ok(_) => {
-                self.sync_export_base_name(&path, "_receive");
                 self.status_text = format!("接收日志已导出到 {}", path.display());
             }
             Err(err) => self.push_error(format!("导出接收日志失败: {err}")),
@@ -337,7 +333,7 @@ impl SerialToolApp {
     }
 
     pub fn export_plot_csv(&mut self) {
-        let default_name = format!("{}_plot.csv", self.export_base_name.trim());
+        let default_name = export_file_name("plot", "csv");
         let Some(path) = FileDialog::new()
             .set_file_name(&default_name)
             .add_filter("CSV 文件", &["csv"])
@@ -389,19 +385,10 @@ impl SerialToolApp {
 
         match fs::write(&path, rows.join("\n")) {
             Ok(_) => {
-                self.sync_export_base_name(&path, "_plot");
                 self.status_text = format!("曲线数据已导出到 {}", path.display());
             }
             Err(err) => self.push_error(format!("导出曲线失败: {err}")),
         }
-    }
-
-    fn sync_export_base_name(&mut self, path: &Path, suffix: &str) {
-        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
-            return;
-        };
-
-        self.export_base_name = stem.strip_suffix(suffix).unwrap_or(stem).trim().to_owned();
     }
 
     pub fn filtered_receive_records(&self) -> Vec<&ReceiveRecord> {
@@ -1259,6 +1246,15 @@ pub fn build_tx_payload(
         payload.push((crc >> 8) as u8);
     }
     Ok(payload)
+}
+
+fn export_file_name(kind: &str, extension: &str) -> String {
+    format!(
+        "serial_log_{}_{}.{}",
+        Local::now().format("%Y%m%d_%H%M%S"),
+        kind,
+        extension
+    )
 }
 
 fn modbus_crc16(data: &[u8]) -> u16 {
