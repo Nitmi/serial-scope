@@ -156,7 +156,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                                     );
                                     plot_ui.line(
                                         Line::new(points)
-                                            .name(app.chart_state.display_name(&key))
+                                            .name(app.chart_state.display_name(key))
                                             .color(
                                                 visible_colors
                                                     .get(key)

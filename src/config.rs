@@ -77,16 +77,11 @@ pub struct PlotLayoutConfig {
     pub x_axis_mode: PlotXAxisMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlotXAxisMode {
+    #[default]
     Point,
     Time,
-}
-
-impl Default for PlotXAxisMode {
-    fn default() -> Self {
-        Self::Point
-    }
 }
 
 impl Default for PlotLayoutConfig {
