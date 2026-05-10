@@ -54,13 +54,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             ui.label(RichText::new("发送内容").small().color(MUTED));
             ui.add_space(4.0);
             let editor_size = egui::vec2(ui.available_width(), 200.0);
-            ui.add_sized(
+            let editor_response = ui.add_sized(
                 editor_size,
                 egui::TextEdit::multiline(&mut app.send_input)
                     .desired_rows(10)
                     .lock_focus(true)
+                    .return_key(egui::KeyboardShortcut::new(
+                        egui::Modifiers::SHIFT,
+                        egui::Key::Enter,
+                    ))
                     .hint_text(hint),
             );
+            if editor_response.has_focus() && pressed_plain_enter(ui) {
+                app.send_current_input();
+            }
 
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
@@ -211,6 +218,23 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 .color(MUTED),
         );
     });
+}
+
+fn pressed_plain_enter(ui: &egui::Ui) -> bool {
+    ui.input(|input| {
+        input.events.iter().any(|event| {
+            matches!(
+                event,
+                egui::Event::Key {
+                    key: egui::Key::Enter,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                    ..
+                } if *modifiers == egui::Modifiers::NONE
+            )
+        })
+    })
 }
 
 fn section_frame() -> egui::Frame {
