@@ -1,6 +1,6 @@
 [package]
 name = "serial-scope"
-version = "0.2.12"
+version = "0.2.13"
 edition = "2021"
 build = "build.rs"
 
@@ -38,3 +38,4 @@ windows-sys = { version = "0.61", features = [
   "Win32_Graphics_Gdi",
   "Win32_UI_WindowsAndMessaging"
 ] }
+

@@ -12,6 +12,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.13] - 2026-05-10
+
+### Added
+- 发送输入框现在支持 Enter 发送、Shift+Enter 换行。
+- 数据绘图 X 轴现在支持在点数和运行时间两种模式之间切换。
+
+### Changed
+- 数据绘图 X/Y 轴缩放控件现在允许更大的放大比例。
+
+### Fixed
+- 接收日志和绘图 CSV 导出现在会在每次导出时生成默认文件名，不再复用应用启动时的时间戳。
+
 ## [0.2.12] - 2026-04-24
 
 ### Fixed
