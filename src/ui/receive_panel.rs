@@ -215,7 +215,7 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
             }
 
             let output = if app.receive_filter.trim().is_empty() {
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::both()
                     .auto_shrink([false; 2])
                     .stick_to_bottom(app.receive_is_following())
                     .show_rows(
@@ -231,10 +231,6 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
                                     index,
                                     &highlights,
                                 );
-                            }
-
-                            if app.receive_is_following() && !user_requested_history {
-                                ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
                             }
                         },
                     )
@@ -257,16 +253,12 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
                     return;
                 }
 
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::both()
                     .auto_shrink([false; 2])
                     .stick_to_bottom(app.receive_is_following())
                     .show_rows(ui, LOG_ROW_HEIGHT, filtered.len(), |ui, row_range| {
                         for index in row_range {
                             render_log_row(ui, app, filtered[index], index, &highlights);
-                        }
-
-                        if app.receive_is_following() && !user_requested_history {
-                            ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
                         }
                     })
             };
@@ -291,6 +283,15 @@ fn log_surface(ui: &mut egui::Ui, app: &mut SerialToolApp, min_height: f32) {
                 app.resume_receive_auto_follow();
             } else if app.receive_is_manual() {
                 app.pause_receive_auto_follow();
+            }
+
+            if app.receive_is_following() && !user_requested_history {
+                let mut scroll_state = output.state;
+                if (scroll_state.offset.y - max_offset_y).abs() > 1.0 {
+                    scroll_state.offset.y = max_offset_y;
+                    scroll_state.store(ui.ctx(), output.id);
+                    ui.ctx().request_repaint();
+                }
             }
         },
     );
@@ -341,7 +342,7 @@ fn render_log_row(
                                     .text_style(mono_text_style())
                                     .color(INK),
                             )
-                            .truncate(),
+                            .extend(),
                         );
                     });
                 });
