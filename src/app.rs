@@ -26,7 +26,6 @@ const MAX_LOG_LINES: usize = 100_000;
 const MAX_PLOT_POINTS: usize = 200_000;
 const GUI_REFRESH_MS: u64 = 30;
 const PORT_REFRESH_MS: u64 = 1_500;
-const MAX_LINE_PREVIEW_CHARS: usize = 120;
 const MAX_SEND_HISTORY: usize = 20;
 const UPDATE_CHECK_DELAY_MS: u64 = 2_000;
 
@@ -1172,21 +1171,6 @@ impl PlotState {
         }
     }
 
-    pub fn schema_status_text(&self) -> String {
-        if let Some(message) = &self.last_filter_message {
-            if let Some(locked) = &self.locked_schema {
-                return format!("{} | 当前主格式: {}", message, locked.label());
-            }
-            return message.clone();
-        }
-
-        if let Some(locked) = &self.locked_schema {
-            return format!("当前主格式: {}", locked.label());
-        }
-
-        "等待稳定的绘图数据格式（连续 3 条一致数据后开始绘图）".to_owned()
-    }
-
     pub fn visible_series_keys(&self) -> Vec<String> {
         self.series
             .keys()
@@ -1243,26 +1227,6 @@ impl PlotState {
             .filter_map(|(_, values)| values.back().map(|point| point.x(self.x_axis_mode)))
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
     }
-
-    pub fn latest_points_summary(&self) -> String {
-        if self.series.is_empty() {
-            return "尚未解析到可绘图数据，当前支持 CSV 与 key=value 行解析。".to_owned();
-        }
-        let mut parts = Vec::new();
-        for (name, values) in &self.series {
-            if !self.visible.contains(name) {
-                continue;
-            }
-            if let Some(last) = values.back() {
-                parts.push(format!("{}={:.3}", self.display_name(name), last.value));
-            }
-        }
-        if parts.is_empty() {
-            "当前没有启用中的曲线。".to_owned()
-        } else {
-            format!("最新数据: {}", parts.join(", "))
-        }
-    }
 }
 
 pub fn display_receive_data(mode: DisplayMode, bytes: &[u8]) -> String {
@@ -1276,26 +1240,6 @@ pub fn receive_display_text(mode: DisplayMode, bytes: &[u8]) -> String {
     display_receive_data(mode, bytes)
         .trim_end_matches(['\r', '\n'])
         .to_owned()
-}
-
-pub fn preview_text_line(bytes: &[u8]) -> Option<String> {
-    let text = String::from_utf8_lossy(bytes);
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let line = normalized
-        .lines()
-        .find(|line| !line.trim().is_empty())?
-        .trim();
-    let preview = if line.chars().count() > MAX_LINE_PREVIEW_CHARS {
-        let mut shortened = line
-            .chars()
-            .take(MAX_LINE_PREVIEW_CHARS)
-            .collect::<String>();
-        shortened.push_str("...");
-        shortened
-    } else {
-        line.to_owned()
-    };
-    Some(preview)
 }
 
 pub fn mono_text_style() -> TextStyle {
@@ -1386,7 +1330,7 @@ mod tests {
         state.ingest(csv_line(3.0), 0.0, 32);
         assert_eq!(state.visible_series_keys().len(), 2);
         assert_eq!(state.series["ch1"].len(), 3);
-        assert!(state.schema_status_text().contains("当前主格式"));
+        assert_eq!(state.locked_schema, Some(ParsedSchema::Csv { channels: 2 }));
     }
 
     #[test]
@@ -1400,7 +1344,10 @@ mod tests {
 
         assert_eq!(state.series["ch1"].len(), 3);
         assert!(!state.series.contains_key("hum"));
-        assert!(state.schema_status_text().contains("已过滤不匹配数据"));
+        assert!(state
+            .last_filter_message
+            .as_deref()
+            .is_some_and(|message| message.contains("已过滤不匹配数据")));
     }
 
     #[test]
@@ -1416,7 +1363,16 @@ mod tests {
 
         assert!(!state.series.contains_key("ch1"));
         assert_eq!(state.series["hum"].len(), 3);
-        assert!(state.schema_status_text().contains("已切换到"));
+        assert_eq!(
+            state.locked_schema,
+            Some(ParsedSchema::KeyValue {
+                keys: vec!["hum".to_owned(), "temp".to_owned()],
+            })
+        );
+        assert!(state
+            .last_filter_message
+            .as_deref()
+            .is_some_and(|message| message.contains("已切换到")));
     }
 
     #[test]
@@ -1428,9 +1384,9 @@ mod tests {
         state.clear();
 
         assert!(state.series.is_empty());
-        assert!(state
-            .schema_status_text()
-            .contains("等待稳定的绘图数据格式"));
+        assert!(state.locked_schema.is_none());
+        assert!(state.pending_schema.is_none());
+        assert!(state.last_filter_message.is_none());
     }
 
     #[test]

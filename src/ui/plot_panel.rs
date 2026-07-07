@@ -4,7 +4,7 @@ use eframe::egui::{self, vec2, Color32, RichText, Slider, Stroke};
 use egui_plot::{Legend, Line, Plot, PlotBounds, PlotPoints};
 
 use super::panel_shell;
-use crate::app::{preview_text_line, MainView, SerialToolApp};
+use crate::app::{MainView, SerialToolApp};
 use crate::config::PlotXAxisMode;
 
 const RESIZE_HANDLE_WIDTH: f32 = 12.0;
@@ -53,26 +53,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
             );
         });
 
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new(app.chart_state.latest_points_summary())
-                .color(Color32::from_rgb(120, 172, 255)),
-        );
-        ui.label(
-            RichText::new(app.chart_state.schema_status_text())
-                .small()
-                .color(Color32::from_rgb(255, 196, 120)),
-        );
-        if let Some(record) = app.receive_lines.back() {
-            if let Some(preview) = preview_text_line(&record.data) {
-                ui.label(
-                    RichText::new(format!("最近文本行: {preview}"))
-                        .small()
-                        .color(MUTED),
-                );
-            }
-        }
         if app.chart_state.series.is_empty() {
+            ui.add_space(4.0);
             ui.label(
                 RichText::new("示例输入: 1.23,4.56,7.89 或 flag=143,key=1 都会自动生成曲线。")
                     .color(Color32::from_rgb(255, 196, 120)),
