@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+## [0.2.15] - 2026-07-09
+
+### Fixed
+- 接收区复制包含 NUL、ESC、DEL 等异常控制字符的串口消息时，现在会将这些不可见字符显示为 `\xNN` 转义文本，避免 Ctrl+C 后粘贴为空白或被截断。
+
 ## [0.2.14] - 2026-07-07
 
 ### Changed
