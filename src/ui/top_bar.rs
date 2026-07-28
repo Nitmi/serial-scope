@@ -12,6 +12,10 @@ const LINE: Color32 = Color32::from_rgb(208, 218, 230);
 const CARD_RADIUS: f32 = 12.0;
 const SOFT_RADIUS: f32 = 9.0;
 const CHIP_RADIUS: f32 = 10.0;
+const GITHUB_REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
+const GITHUB_MARK_BYTES: &[u8] = include_bytes!("../../assets/github-invertocat-white.png");
+const GITHUB_BUTTON_SIZE: f32 = 34.0;
+const GITHUB_MARK_HEIGHT: f32 = 22.0;
 const COMMON_BAUD_RATES: [u32; 11] = [
     1_200, 2_400, 4_800, 9_600, 19_200, 38_400, 57_600, 115_200, 230_400, 460_800, 921_600,
 ];
@@ -45,6 +49,10 @@ pub fn show(ctx: &egui::Context, app: &mut SerialToolApp) {
                         ui.add_space(12.0);
                         metric_text(ui, "RX 速率", format!("{:.1} B/s", app.rx_rate_bps));
                         update_header_controls(ui, app);
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            github_repository_button,
+                        );
                     });
 
                     ui.add_space(10.0);
@@ -312,6 +320,84 @@ fn metric_text(ui: &mut egui::Ui, label: &str, value: String) {
     });
 }
 
+fn github_repository_button(ui: &mut egui::Ui) {
+    let texture = github_mark_texture(ui.ctx());
+    let mark_size = texture.size_vec2() / ui.ctx().pixels_per_point();
+    let (rect, response) =
+        ui.allocate_exact_size(egui::Vec2::splat(GITHUB_BUTTON_SIZE), Sense::click());
+
+    if ui.is_rect_visible(rect) {
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect.shrink(1.0),
+                egui::Rounding::same(7.0),
+                Stroke::new(1.0, ACCENT),
+            );
+        }
+
+        let mark_rect = egui::Rect::from_center_size(rect.center(), mark_size);
+        egui::Image::from_texture((texture.id(), mark_size))
+            .tint(INK)
+            .paint_at(ui, mark_rect);
+    }
+
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "打开 GitHub 仓库")
+    });
+
+    if response.clicked() {
+        ui.ctx()
+            .open_url(egui::OpenUrl::new_tab(GITHUB_REPOSITORY_URL));
+    }
+}
+
+fn github_mark_texture(ctx: &egui::Context) -> egui::TextureHandle {
+    let target_height = (GITHUB_MARK_HEIGHT * ctx.pixels_per_point())
+        .round()
+        .max(1.0) as usize;
+    let cache_id = egui::Id::new(("github_invertocat_texture", target_height));
+    if let Some(texture) = ctx.data(|data| data.get_temp::<egui::TextureHandle>(cache_id)) {
+        return texture;
+    }
+
+    let color_image = rasterized_github_mark(target_height);
+    let texture = ctx.load_texture(
+        format!("github_invertocat_{target_height}px"),
+        color_image,
+        egui::TextureOptions::LINEAR,
+    );
+    ctx.data_mut(|data| data.insert_temp(cache_id, texture.clone()));
+    texture
+}
+
+fn rasterized_github_mark(target_height: usize) -> egui::ColorImage {
+    let decoded = image::load_from_memory(GITHUB_MARK_BYTES)
+        .expect("bundled GitHub Invertocat must be a valid PNG")
+        .into_rgba8();
+    let target_height = target_height.max(1);
+    let target_width = ((target_height as f32 * decoded.width() as f32 / decoded.height() as f32)
+        .round() as usize)
+        .max(1);
+    let alpha = image::GrayImage::from_raw(
+        decoded.width(),
+        decoded.height(),
+        decoded.pixels().map(|pixel| pixel[3]).collect(),
+    )
+    .expect("GitHub mark alpha dimensions must match the source image");
+    let resized_alpha = image::imageops::resize(
+        &alpha,
+        target_width as u32,
+        target_height as u32,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let mut rgba = Vec::with_capacity(target_width * target_height * 4);
+    for alpha in resized_alpha.into_raw() {
+        rgba.extend_from_slice(&[255, 255, 255, alpha]);
+    }
+
+    egui::ColorImage::from_rgba_unmultiplied([target_width, target_height], &rgba)
+}
+
 fn labeled_column(ui: &mut egui::Ui, label: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     ui.vertical(|ui| {
         ui.label(RichText::new(label).small().color(MUTED));
@@ -467,4 +553,38 @@ fn enum_combo_parity(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_github_mark_is_a_near_square_png() {
+        let mark = image::load_from_memory(GITHUB_MARK_BYTES).expect("GitHub mark should decode");
+        let aspect_ratio = mark.width() as f32 / mark.height() as f32;
+
+        assert!(mark.width() > 0);
+        assert!((aspect_ratio - 1.0).abs() < 0.05);
+    }
+
+    #[test]
+    fn rasterized_github_mark_has_antialiased_edges() {
+        let mark = rasterized_github_mark(GITHUB_MARK_HEIGHT as usize);
+
+        assert_eq!(mark.size[1], GITHUB_MARK_HEIGHT as usize);
+        assert!(mark.pixels.iter().any(|pixel| pixel.a() == 255));
+        assert!(mark
+            .pixels
+            .iter()
+            .any(|pixel| pixel.a() > 0 && pixel.a() < 255));
+    }
+
+    #[test]
+    fn repository_url_comes_from_package_metadata() {
+        assert_eq!(
+            GITHUB_REPOSITORY_URL,
+            "https://github.com/Nitmi/serial-scope"
+        );
+    }
 }
