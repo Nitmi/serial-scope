@@ -30,16 +30,38 @@ const PALETTE: [Color32; 12] = [
 
 pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
     panel_shell::show_main_panel(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.heading(RichText::new("实时曲线").color(INK));
+        ui.horizontal(|ui| {
+            let title = if app.chart_state.imported_file_name().is_some() {
+                "历史曲线"
+            } else {
+                "实时曲线"
+            };
+            ui.heading(RichText::new(title).color(INK));
+            if app.chart_state.is_paused() {
+                paused_status(ui);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 view_switch(ui, app);
             });
+        });
+
+        if let Some(file_name) = app.chart_state.imported_file_name() {
+            ui.label(
+                RichText::new(format!("历史文件：{file_name}"))
+                    .strong()
+                    .color(Color32::from_rgb(74, 121, 214)),
+            );
+        }
+
+        ui.horizontal_wrapped(|ui| {
             if ui.button(app.chart_state.paused_label()).clicked() {
                 app.chart_state.toggle_pause();
             }
             if ui.button("清空全部").clicked() {
                 app.clear_plot();
+            }
+            if ui.button("导入 CSV").clicked() {
+                app.import_plot_csv();
             }
             if ui.button("导出 CSV").clicked() {
                 app.export_plot_csv();
@@ -208,20 +230,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new("X 轴").small().color(MUTED));
                             let mut x_axis_mode = app.chart_state.x_axis_mode;
-                            let point_changed = ui
-                                .selectable_value(
-                                    &mut x_axis_mode,
-                                    PlotXAxisMode::Point,
-                                    "点数",
-                                )
-                                .changed();
-                            let time_changed = ui
-                                .selectable_value(
-                                    &mut x_axis_mode,
-                                    PlotXAxisMode::Time,
-                                    "时间",
-                                )
-                                .changed();
+                            let point_changed = x_axis_choice(
+                                ui,
+                                &mut x_axis_mode,
+                                PlotXAxisMode::Point,
+                                "点数",
+                                app.chart_state.x_axis_available(PlotXAxisMode::Point),
+                            );
+                            let time_changed = x_axis_choice(
+                                ui,
+                                &mut x_axis_mode,
+                                PlotXAxisMode::Time,
+                                "时间",
+                                app.chart_state.x_axis_available(PlotXAxisMode::Time),
+                            );
                             if point_changed || time_changed {
                                 app.chart_state.set_x_axis_mode(x_axis_mode);
                                 app.persist_config();
@@ -441,15 +463,45 @@ pub fn show(ui: &mut egui::Ui, app: &mut SerialToolApp) {
                 );
             },
         );
-
-        if app.chart_state.is_paused() {
-            ui.add_space(4.0);
-            ui.label(
-                RichText::new("绘图已暂停，新的解析数据不会追加到曲线。")
-                    .color(Color32::from_rgb(255, 196, 120)),
-            );
-        }
     });
+}
+
+fn paused_status(ui: &mut egui::Ui) {
+    let response = ui
+        .horizontal(|ui| {
+            let (dot_rect, _) = ui.allocate_exact_size(vec2(8.0, 8.0), egui::Sense::hover());
+            ui.painter()
+                .circle_filled(dot_rect.center(), 4.0, Color32::from_rgb(218, 151, 54));
+            ui.label(
+                RichText::new("绘图已暂停")
+                    .small()
+                    .strong()
+                    .color(Color32::from_rgb(181, 119, 36)),
+            );
+        })
+        .response;
+    response.on_hover_text("新的解析数据不会追加到曲线");
+}
+
+fn x_axis_choice(
+    ui: &mut egui::Ui,
+    selected: &mut PlotXAxisMode,
+    mode: PlotXAxisMode,
+    label: &str,
+    enabled: bool,
+) -> bool {
+    let control = ui.add_enabled_ui(enabled, |ui| ui.selectable_value(selected, mode, label));
+    let changed = control.inner.changed();
+    if !enabled {
+        let missing_axis = match mode {
+            PlotXAxisMode::Point => "点数",
+            PlotXAxisMode::Time => "时间",
+        };
+        control
+            .response
+            .on_disabled_hover_text(format!("当前导入文件未包含{missing_axis}轴数据"));
+    }
+    changed
 }
 
 fn plot_history_navigation_requested(ctx: &egui::Context, plot_rect: egui::Rect) -> bool {
