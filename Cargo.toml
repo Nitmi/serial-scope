@@ -10,6 +10,7 @@ repository = "https://github.com/Nitmi/serial-scope"
 anyhow = "1"
 chrono = { version = "0.4", features = ["clock"] }
 crossbeam-channel = "0.5"
+csv = "1"
 eframe = { version = "0.29", default-features = true }
 egui = "0.29"
 egui_plot = "0.29"

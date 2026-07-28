@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
+use std::io::Write;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -14,7 +15,7 @@ use crate::config::{
     AppConfig, AutoSendConfig, PlotLayoutConfig, PlotXAxisMode, ProtocolAssistantConfig,
     QuickCommandConfig,
 };
-use crate::parser::{LineAccumulator, ParsedLine, ParsedSchema};
+use crate::parser::{read_plot_csv, ImportedPlotData, LineAccumulator, ParsedLine, ParsedSchema};
 use crate::serial::{
     available_port_options, build_port_options, bytes_to_ascii_display, bytes_to_hex_display,
     DisplayMode, GuiToSerialMessage, SerialEvent, SerialManager, SerialPortOption, SerialSettings,
@@ -334,6 +335,11 @@ impl SerialToolApp {
     }
 
     pub fn export_plot_csv(&mut self) {
+        if self.chart_state.visible_series_keys().is_empty() {
+            self.push_error("没有可导出的可见曲线".to_owned());
+            return;
+        }
+
         let default_name = export_file_name("plot", "csv");
         let Some(path) = FileDialog::new()
             .set_file_name(&default_name)
@@ -342,54 +348,50 @@ impl SerialToolApp {
         else {
             return;
         };
-        let x_axis_mode = self.chart_state.x_axis_mode;
-        let mut headers = vec![self.chart_state.x_axis_label().to_owned()];
-        let visible = self.chart_state.visible_series_keys();
-        headers.extend(
-            visible
-                .iter()
-                .map(|name| self.chart_state.display_name(name)),
-        );
-        let mut rows = vec![headers.join(",")];
-        let max_len = self
-            .chart_state
-            .series
-            .values()
-            .map(|values| values.len())
-            .max()
-            .unwrap_or(0);
 
-        for index in 0..max_len {
-            let mut row = Vec::new();
-            let mut x_value = String::new();
-            for name in &visible {
-                if let Some(values) = self.chart_state.series.get(name) {
-                    if let Some(point) = values.get(index) {
-                        if x_value.is_empty() {
-                            x_value = self.chart_state.format_x_value(point.x(x_axis_mode));
-                        }
-                    }
-                }
-            }
-            row.push(x_value);
-            for name in &visible {
-                let cell = self
-                    .chart_state
-                    .series
-                    .get(name)
-                    .and_then(|values| values.get(index))
-                    .map(|point| format!("{:.6}", point.value))
-                    .unwrap_or_default();
-                row.push(cell);
-            }
-            rows.push(row.join(","));
-        }
+        let export_result = (|| -> Result<()> {
+            let file = fs::File::create(&path)?;
+            self.chart_state.write_plot_csv(file)
+        })();
 
-        match fs::write(&path, rows.join("\n")) {
+        match export_result {
             Ok(_) => {
                 self.status_text = format!("曲线数据已导出到 {}", path.display());
             }
             Err(err) => self.push_error(format!("导出曲线失败: {err}")),
+        }
+    }
+
+    pub fn import_plot_csv(&mut self) {
+        let Some(path) = FileDialog::new()
+            .add_filter("CSV 文件", &["csv"])
+            .pick_file()
+        else {
+            return;
+        };
+
+        match read_plot_csv(&path, MAX_PLOT_POINTS) {
+            Ok(data) => {
+                let series_count = data.series.len();
+                let point_count = data.row_count;
+                let axis_summary = match (data.has_point_axis, data.has_time_axis) {
+                    (true, true) => "可切换点数/时间轴",
+                    (true, false) => "文件仅包含点数轴",
+                    (false, true) => "文件仅包含时间轴",
+                    (false, false) => "文件未包含有效 X 轴",
+                };
+                let file_name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+                self.chart_state.load_imported_data(data, file_name.clone());
+                self.last_error = None;
+                self.status_text = format!(
+                    "已载入历史数据 {file_name}: {series_count} 条曲线，{point_count} 行，{axis_summary}；实时绘图已暂停"
+                );
+                self.persist_config();
+            }
+            Err(err) => self.push_error(format!("导入曲线失败: {err}")),
         }
     }
 
@@ -807,11 +809,27 @@ pub enum PlotFollowMode {
     Manual,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PlotXAxisAvailability {
+    point: bool,
+    time: bool,
+}
+
+impl Default for PlotXAxisAvailability {
+    fn default() -> Self {
+        Self {
+            point: true,
+            time: true,
+        }
+    }
+}
+
 pub struct PlotState {
     next_index: f64,
     paused: bool,
     pub follow_mode: PlotFollowMode,
     pub x_axis_mode: PlotXAxisMode,
+    x_axis_availability: PlotXAxisAvailability,
     pub x_zoom: f64,
     pub y_zoom: f64,
     last_applied_x_zoom: f64,
@@ -824,6 +842,7 @@ pub struct PlotState {
     pub series: BTreeMap<String, VecDeque<PlotPoint>>,
     pub visible: BTreeSet<String>,
     display_names: BTreeMap<String, String>,
+    imported_file_name: Option<String>,
     renaming_series_key: Option<String>,
     renaming_series_name: String,
 }
@@ -851,6 +870,7 @@ impl Default for PlotState {
             paused: false,
             follow_mode: PlotFollowMode::Follow,
             x_axis_mode: PlotXAxisMode::Point,
+            x_axis_availability: PlotXAxisAvailability::default(),
             x_zoom: 1.0,
             y_zoom: 1.0,
             last_applied_x_zoom: 1.0,
@@ -863,6 +883,7 @@ impl Default for PlotState {
             series: BTreeMap::new(),
             visible: BTreeSet::new(),
             display_names: BTreeMap::new(),
+            imported_file_name: None,
             renaming_series_key: None,
             renaming_series_name: String::new(),
         }
@@ -1018,11 +1039,62 @@ impl PlotState {
         self.resume_auto_follow();
     }
 
+    pub fn load_imported_data(&mut self, data: ImportedPlotData, file_name: String) {
+        self.clear();
+        self.x_axis_mode = data.x_axis_mode;
+        self.x_axis_availability = PlotXAxisAvailability {
+            point: data.has_point_axis,
+            time: data.has_time_axis,
+        };
+        self.paused = true;
+        self.imported_file_name = Some(file_name);
+        self.next_index = data
+            .series
+            .iter()
+            .flat_map(|series| series.points.iter())
+            .filter_map(|point| point.index)
+            .max_by(f64::total_cmp)
+            .map(|index| index + 1.0)
+            .unwrap_or(data.row_count as f64);
+
+        for imported_series in data.series {
+            let key = self.unique_series_key(&imported_series.name);
+            let points = imported_series
+                .points
+                .into_iter()
+                .map(|point| {
+                    let row_index = point.row_index as f64;
+                    PlotPoint {
+                        index: point.index.unwrap_or(row_index),
+                        elapsed_secs: point.elapsed_secs.unwrap_or(row_index),
+                        value: point.value,
+                    }
+                })
+                .collect::<VecDeque<_>>();
+            self.visible.insert(key.clone());
+            self.display_names.insert(key.clone(), imported_series.name);
+            self.series.insert(key, points);
+        }
+    }
+
+    fn unique_series_key(&self, name: &str) -> String {
+        if !self.series.contains_key(name) {
+            return name.to_owned();
+        }
+
+        (2..)
+            .map(|suffix| format!("{name}#{suffix}"))
+            .find(|candidate| !self.series.contains_key(candidate))
+            .unwrap_or_else(|| format!("{name}#imported"))
+    }
+
     fn clear_series_data(&mut self) {
         self.next_index = 0.0;
         self.series.clear();
         self.visible.clear();
         self.display_names.clear();
+        self.x_axis_availability = PlotXAxisAvailability::default();
+        self.imported_file_name = None;
         self.renaming_series_key = None;
         self.renaming_series_name.clear();
     }
@@ -1061,23 +1133,125 @@ impl PlotState {
     }
 
     pub fn set_x_axis_mode(&mut self, mode: PlotXAxisMode) {
-        if self.x_axis_mode != mode {
+        if self.x_axis_available(mode) && self.x_axis_mode != mode {
             self.x_axis_mode = mode;
             self.resume_auto_follow();
         }
     }
 
+    pub fn x_axis_available(&self, mode: PlotXAxisMode) -> bool {
+        match mode {
+            PlotXAxisMode::Point => self.x_axis_availability.point,
+            PlotXAxisMode::Time => self.x_axis_availability.time,
+        }
+    }
+
     pub fn x_axis_label(&self) -> &'static str {
-        match self.x_axis_mode {
+        Self::x_axis_label_for(self.x_axis_mode)
+    }
+
+    fn x_axis_label_for(mode: PlotXAxisMode) -> &'static str {
+        match mode {
             PlotXAxisMode::Point => "点数",
             PlotXAxisMode::Time => "时间(s)",
         }
     }
 
-    pub fn format_x_value(&self, value: f64) -> String {
-        match self.x_axis_mode {
+    fn format_x_value_for(mode: PlotXAxisMode, value: f64) -> String {
+        match mode {
             PlotXAxisMode::Point => format!("{value:.0}"),
-            PlotXAxisMode::Time => format!("{value:.3}"),
+            PlotXAxisMode::Time => format!("{value:.6}"),
+        }
+    }
+
+    fn export_x_axis_modes(&self) -> Vec<PlotXAxisMode> {
+        let mut modes = Vec::with_capacity(2);
+        if self.x_axis_available(self.x_axis_mode) {
+            modes.push(self.x_axis_mode);
+        }
+        for mode in [PlotXAxisMode::Point, PlotXAxisMode::Time] {
+            if self.x_axis_available(mode) && !modes.contains(&mode) {
+                modes.push(mode);
+            }
+        }
+        modes
+    }
+
+    fn write_plot_csv(&self, output: impl Write) -> Result<()> {
+        let visible = self.visible_series_keys();
+        if visible.is_empty() {
+            return Err(anyhow!("没有可导出的可见曲线"));
+        }
+
+        let x_axis_modes = self.export_x_axis_modes();
+        if x_axis_modes.is_empty() {
+            return Err(anyhow!("当前数据没有可导出的 X 轴"));
+        }
+
+        let mut headers = x_axis_modes
+            .iter()
+            .map(|mode| Self::export_x_axis_header(*mode).to_owned())
+            .collect::<Vec<_>>();
+        headers.extend(visible.iter().map(|name| self.display_name(name)));
+
+        let mut row_indices = visible
+            .iter()
+            .filter_map(|name| self.series.get(name))
+            .flat_map(|values| values.iter().map(|point| point.index))
+            .collect::<Vec<_>>();
+        row_indices.sort_by(f64::total_cmp);
+        row_indices.dedup_by(|left, right| left.total_cmp(right).is_eq());
+
+        let mut writer = csv::WriterBuilder::new()
+            .terminator(csv::Terminator::Any(b'\n'))
+            .from_writer(output);
+        writer.write_record(&headers)?;
+
+        let mut positions = vec![0usize; visible.len()];
+        for row_index in row_indices {
+            let mut x_cells = vec![String::new(); x_axis_modes.len()];
+            let mut value_cells = Vec::with_capacity(visible.len());
+
+            for (series_index, name) in visible.iter().enumerate() {
+                let Some(values) = self.series.get(name) else {
+                    value_cells.push(String::new());
+                    continue;
+                };
+                let position = &mut positions[series_index];
+                while values
+                    .get(*position)
+                    .is_some_and(|point| point.index.total_cmp(&row_index).is_lt())
+                {
+                    *position += 1;
+                }
+
+                let point = values
+                    .get(*position)
+                    .filter(|point| point.index.total_cmp(&row_index).is_eq());
+                if let Some(point) = point {
+                    if x_cells[0].is_empty() {
+                        for (cell, mode) in x_cells.iter_mut().zip(&x_axis_modes) {
+                            *cell = Self::format_x_value_for(*mode, point.x(*mode));
+                        }
+                    }
+                    value_cells.push(format!("{:.6}", point.value));
+                } else {
+                    value_cells.push(String::new());
+                }
+            }
+
+            x_cells.extend(value_cells);
+            writer.write_record(&x_cells)?;
+        }
+
+        writer.flush()?;
+        Ok(())
+    }
+
+    fn export_x_axis_header(mode: PlotXAxisMode) -> &'static str {
+        match mode {
+            PlotXAxisMode::Point => "X轴:点数",
+            PlotXAxisMode::Time => "X轴:时间(s)",
         }
     }
 
@@ -1184,6 +1358,10 @@ impl PlotState {
             .get(key)
             .cloned()
             .unwrap_or_else(|| key.to_owned())
+    }
+
+    pub fn imported_file_name(&self) -> Option<&str> {
+        self.imported_file_name.as_deref()
     }
 
     pub fn start_series_renaming(&mut self, key: &str) {
@@ -1300,7 +1478,8 @@ mod tests {
         PlotFollowMode, PlotState, ReceiveFollowMode, ReceiveRecord, SerialToolApp, MAX_PLOT_POINTS,
     };
     use crate::config::{AppConfig, PlotXAxisMode};
-    use crate::parser::{ParsedLine, ParsedSchema};
+    use crate::parser::plot_csv::{parse_plot_csv, ImportedPlotPoint, ImportedPlotSeries};
+    use crate::parser::{ImportedPlotData, ParsedLine, ParsedSchema};
     use egui_plot::PlotBounds;
 
     fn csv_line(index: f32) -> ParsedLine {
@@ -1317,6 +1496,159 @@ mod tests {
             },
             values: vec![("hum".to_owned(), value), ("temp".to_owned(), value + 1.0)],
         }
+    }
+
+    #[test]
+    fn imported_history_replaces_series_and_preserves_time_positions() {
+        let mut state = PlotState::default();
+        state.ingest(csv_line(1.0), 0.0, 32);
+        state.ingest(csv_line(2.0), 0.1, 32);
+        state.ingest(csv_line(3.0), 0.2, 32);
+
+        state.load_imported_data(
+            ImportedPlotData {
+                x_axis_mode: PlotXAxisMode::Time,
+                has_point_axis: true,
+                has_time_axis: true,
+                series: vec![ImportedPlotSeries {
+                    name: "温度".to_owned(),
+                    points: vec![
+                        ImportedPlotPoint {
+                            row_index: 0,
+                            index: Some(10.0),
+                            elapsed_secs: Some(0.5),
+                            value: 20.0,
+                        },
+                        ImportedPlotPoint {
+                            row_index: 2,
+                            index: Some(12.0),
+                            elapsed_secs: Some(1.5),
+                            value: 22.0,
+                        },
+                    ],
+                }],
+                row_count: 3,
+            },
+            "history.csv".to_owned(),
+        );
+
+        assert!(state.is_paused());
+        assert!(state.is_following());
+        assert_eq!(state.x_axis_mode, PlotXAxisMode::Time);
+        assert_eq!(state.imported_file_name(), Some("history.csv"));
+        assert!(!state.series.contains_key("ch1"));
+        assert_eq!(state.series["温度"].len(), 2);
+        assert_eq!(state.series["温度"][1].index, 12.0);
+        assert_eq!(state.series["温度"][1].elapsed_secs, 1.5);
+        assert_eq!(state.next_index, 13.0);
+        assert!(state.x_axis_available(PlotXAxisMode::Point));
+        assert!(state.x_axis_available(PlotXAxisMode::Time));
+
+        state.set_x_axis_mode(PlotXAxisMode::Point);
+        assert_eq!(state.x_axis_mode, PlotXAxisMode::Point);
+        assert_eq!(state.series["温度"][1].x(state.x_axis_mode), 12.0);
+    }
+
+    #[test]
+    fn legacy_import_does_not_enable_a_missing_x_axis() {
+        let mut state = PlotState::default();
+        state.load_imported_data(
+            ImportedPlotData {
+                x_axis_mode: PlotXAxisMode::Point,
+                has_point_axis: true,
+                has_time_axis: false,
+                series: vec![ImportedPlotSeries {
+                    name: "ch1".to_owned(),
+                    points: vec![ImportedPlotPoint {
+                        row_index: 0,
+                        index: Some(5.0),
+                        elapsed_secs: None,
+                        value: 20.0,
+                    }],
+                }],
+                row_count: 1,
+            },
+            "legacy.csv".to_owned(),
+        );
+
+        assert!(state.x_axis_available(PlotXAxisMode::Point));
+        assert!(!state.x_axis_available(PlotXAxisMode::Time));
+        state.set_x_axis_mode(PlotXAxisMode::Time);
+        assert_eq!(state.x_axis_mode, PlotXAxisMode::Point);
+    }
+
+    #[test]
+    fn exported_csv_round_trips_both_x_axes_with_current_axis_first() {
+        let mut state = PlotState::default();
+        state.ingest(csv_line(1.0), 0.125, 32);
+        state.ingest(csv_line(2.0), 0.250, 32);
+        state.ingest(csv_line(3.0), 0.375, 32);
+        state.set_x_axis_mode(PlotXAxisMode::Time);
+
+        let mut csv = Vec::new();
+        state.write_plot_csv(&mut csv).unwrap();
+        let text = String::from_utf8(csv.clone()).unwrap();
+        assert!(text.starts_with("X轴:时间(s),X轴:点数,ch1,ch2\n"));
+
+        let imported = parse_plot_csv(csv.as_slice(), 32).unwrap();
+        assert_eq!(imported.x_axis_mode, PlotXAxisMode::Time);
+        assert!(imported.has_point_axis);
+        assert!(imported.has_time_axis);
+        assert_eq!(imported.series[0].points[2].index, Some(2.0));
+        assert_eq!(imported.series[0].points[2].elapsed_secs, Some(0.375));
+    }
+
+    #[test]
+    fn exported_csv_keeps_sparse_series_aligned_by_point_index() {
+        let mut state = PlotState::default();
+        state.load_imported_data(
+            ImportedPlotData {
+                x_axis_mode: PlotXAxisMode::Point,
+                has_point_axis: true,
+                has_time_axis: true,
+                series: vec![
+                    ImportedPlotSeries {
+                        name: "a".to_owned(),
+                        points: vec![
+                            ImportedPlotPoint {
+                                row_index: 0,
+                                index: Some(0.0),
+                                elapsed_secs: Some(0.0),
+                                value: 10.0,
+                            },
+                            ImportedPlotPoint {
+                                row_index: 2,
+                                index: Some(2.0),
+                                elapsed_secs: Some(0.2),
+                                value: 12.0,
+                            },
+                        ],
+                    },
+                    ImportedPlotSeries {
+                        name: "b".to_owned(),
+                        points: (0..3)
+                            .map(|index| ImportedPlotPoint {
+                                row_index: index,
+                                index: Some(index as f64),
+                                elapsed_secs: Some(index as f64 * 0.1),
+                                value: 20.0 + index as f64,
+                            })
+                            .collect(),
+                    },
+                ],
+                row_count: 3,
+            },
+            "sparse.csv".to_owned(),
+        );
+
+        let mut csv = Vec::new();
+        state.write_plot_csv(&mut csv).unwrap();
+        let imported = parse_plot_csv(csv.as_slice(), 32).unwrap();
+
+        assert_eq!(imported.series[0].points.len(), 2);
+        assert_eq!(imported.series[0].points[1].index, Some(2.0));
+        assert_eq!(imported.series[1].points.len(), 3);
+        assert_eq!(imported.series[1].points[1].index, Some(1.0));
     }
 
     #[test]
