@@ -1017,8 +1017,10 @@ impl PlotState {
             self.display_names
                 .entry(name.clone())
                 .or_insert_with(|| name.clone());
-            let points = self.series.entry(name.clone()).or_default();
-            self.visible.insert(name);
+            let points = self.series.entry(name.clone()).or_insert_with(|| {
+                self.visible.insert(name);
+                VecDeque::new()
+            });
             points.push_back(PlotPoint {
                 index: self.next_index,
                 elapsed_secs,
@@ -1663,6 +1665,64 @@ mod tests {
         assert_eq!(state.visible_series_keys().len(), 2);
         assert_eq!(state.series["ch1"].len(), 3);
         assert_eq!(state.locked_schema, Some(ParsedSchema::Csv { channels: 2 }));
+    }
+
+    #[test]
+    fn hidden_series_stays_hidden_during_live_updates() {
+        for (line, hidden, shown) in [
+            (csv_line as fn(f32) -> ParsedLine, "ch1", "ch2"),
+            (kv_line as fn(f32) -> ParsedLine, "hum", "temp"),
+        ] {
+            let mut state = PlotState::default();
+            for index in 0..3 {
+                state.ingest(line(index as f32), index as f64, 8);
+            }
+            assert!(state.visible.remove(hidden));
+
+            for index in 3..32 {
+                state.ingest(line(index as f32), index as f64, 8);
+                assert_eq!(state.visible_series_keys(), vec![shown.to_owned()]);
+            }
+
+            assert_eq!(state.series[hidden].len(), 8);
+            assert_eq!(state.series[hidden].back().unwrap().value, 31.0);
+        }
+    }
+
+    #[test]
+    fn all_series_can_stay_hidden_and_be_shown_again() {
+        let mut state = PlotState::default();
+        for index in 0..3 {
+            state.ingest(csv_line(index as f32), index as f64, 32);
+        }
+        state.visible.clear();
+
+        state.ingest(csv_line(3.0), 3.0, 32);
+        assert!(state.visible_series_keys().is_empty());
+        assert_eq!(state.series["ch1"].len(), 4);
+        assert_eq!(state.series["ch2"].len(), 4);
+
+        state.visible.insert("ch1".to_owned());
+        state.ingest(csv_line(4.0), 4.0, 32);
+        assert_eq!(state.visible_series_keys(), vec!["ch1".to_owned()]);
+        assert_eq!(state.series["ch1"].len(), 5);
+        assert_eq!(state.series["ch2"].len(), 5);
+    }
+
+    #[test]
+    fn recreated_series_is_visible_without_showing_other_hidden_series() {
+        let mut state = PlotState::default();
+        for index in 0..3 {
+            state.ingest(csv_line(index as f32), index as f64, 32);
+        }
+        state.visible.clear();
+        state.clear_series("ch1");
+
+        state.ingest(csv_line(3.0), 3.0, 32);
+
+        assert_eq!(state.visible_series_keys(), vec!["ch1".to_owned()]);
+        assert_eq!(state.series["ch1"].len(), 1);
+        assert_eq!(state.series["ch2"].len(), 4);
     }
 
     #[test]
