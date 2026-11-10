@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 ### Fixed
+
+## [0.2.17] - 2026-11-10
+
+### Fixed
 - 修复实时绘图中取消曲线显示后，被新到达的数据自动恢复显示的问题；隐藏曲线仍会继续记录数据。
 
 ## [0.2.16] - 2026-07-28
